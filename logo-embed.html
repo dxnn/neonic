@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Embedded palette-cycle logo · example</title>
+<style>
+  :root { --bg: #f7f5ee; --ink: #15151a; --muted: #6b6963; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif; }
+
+  /* ─── A reasonably typical site nav bar ─────────────────────────── */
+  .navbar {
+    display: flex; align-items: center; gap: 28px;
+    padding: 0 28px; height: 56px;
+    background: #0a0a0b; color: #fff;
+  }
+  .navbar canvas.logo-cycle {
+    height: 36px; width: auto; display: block;
+  }
+  .navbar nav { display: flex; gap: 22px; }
+  .navbar nav a { color: rgba(255,255,255,.7); text-decoration: none; font-size: 13px; }
+  .navbar nav a:hover { color: #fff; }
+  .navbar .spacer { flex: 1; }
+  .navbar .cta { padding: 7px 14px; background: #1f7bff; color: #fff;
+    border-radius: 6px; font-size: 13px; font-weight: 500; text-decoration: none; }
+
+  /* ─── Body / size comparison ───────────────────────────────────── */
+  main { max-width: 760px; margin: 0 auto; padding: 56px 28px 96px; }
+  h1 { font-weight: 500; font-size: 24px; letter-spacing: -0.01em; margin: 0 0 8px; }
+  p { color: var(--muted); max-width: 64ch; }
+
+  .sizes { margin-top: 36px; display: grid; gap: 16px; }
+  .sizes .row { display: flex; align-items: center; gap: 16px; }
+  .sizes .row .label {
+    width: 96px; color: var(--muted); font-size: 12px;
+    text-transform: uppercase; letter-spacing: .1em; }
+  .sizes .swatch { background: #0a0a0b; padding: 14px 20px; border-radius: 8px; }
+  .sizes canvas { display: block; width: auto; }
+  .sizes .s-24 canvas { height: 24px; }
+  .sizes .s-48 canvas { height: 48px; }
+  .sizes .s-96 canvas { height: 96px; }
+
+  pre { background: #0e0e12; color: #d6d3c7; padding: 14px 16px;
+    border-radius: 8px; overflow: auto; font: 12px/1.55 ui-monospace, monospace; }
+  code { font-family: ui-monospace, monospace; }
+  .err { background: #fff3f0; color: #b3261e; padding: 12px 14px;
+    border-radius: 8px; font-size: 13px; margin-top: 16px; }
+</style>
+</head>
+<body>
+
+<header class="navbar">
+  <canvas class="logo-cycle" data-src="palette-cycle.json"></canvas>
+  <nav>
+    <a href="#">Docs</a>
+    <a href="#">Pricing</a>
+    <a href="#">Blog</a>
+  </nav>
+  <div class="spacer"></div>
+  <a class="cta" href="#">Sign in</a>
+</header>
+
+<main>
+  <h1>Embedded palette-cycle logo.</h1>
+  <p>The marquee above is driven by <code>palette-cycle.json</code> exported from
+    <code>svg-to-ps.html</code>. Same JSON, three display sizes — all sharing the
+    underlying engine.</p>
+
+  <div id="error" class="err" hidden></div>
+
+  <div class="sizes">
+    <div class="row s-24">
+      <span class="label">24px</span>
+      <div class="swatch"><canvas class="logo-cycle" data-src="palette-cycle.json"></canvas></div>
+    </div>
+    <div class="row s-48">
+      <span class="label">48px</span>
+      <div class="swatch"><canvas class="logo-cycle" data-src="palette-cycle.json"></canvas></div>
+    </div>
+    <div class="row s-96">
+      <span class="label">96px</span>
+      <div class="swatch"><canvas class="logo-cycle" data-src="palette-cycle.json"></canvas></div>
+    </div>
+  </div>
+
+  <p style="margin-top: 40px">The whole embed is this:</p>
+<pre>&lt;canvas class="logo-cycle" data-src="palette-cycle.json"&gt;&lt;/canvas&gt;
+&lt;script src="logo-engine-standalone.js"&gt;&lt;/script&gt;
+&lt;script&gt; /* the loop below */ &lt;/script&gt;</pre>
+</main>
+
+<script src="logo-engine-standalone.js"></script>
+<script>
+function buildRamp(stops) {
+  const s = stops.slice().sort((a, b) => a.t - b.t);
+  const out = new Array(255);
+  for (let i = 0; i < 255; i++) {
+    const t = i / 254;
+    let a = s[0], b = s[s.length - 1];
+    if (t <= s[0].t) a = b = s[0];
+    else if (t >= s[s.length - 1].t) a = b = s[s.length - 1];
+    else for (let k = 0; k < s.length - 1; k++)
+      if (t >= s[k].t && t <= s[k+1].t) { a = s[k]; b = s[k+1]; break; }
+    const span = b.t - a.t || 1, u = (t - a.t) / span;
+    out[i] = [
+      Math.round(a.color[0] + (b.color[0] - a.color[0]) * u),
+      Math.round(a.color[1] + (b.color[1] - a.color[1]) * u),
+      Math.round(a.color[2] + (b.color[2] - a.color[2]) * u),
+    ];
+  }
+  return out;
+}
+
+async function mountLogo(canvas) {
+  const cfg = await fetch(canvas.dataset.src).then(r => {
+    if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+    return r.json();
+  });
+  const baked = window.HyperDrive.bakeFromD(cfg);
+  const eng = new window.HyperDrive.CycleEngine(canvas, baked);
+  eng.setPalette(buildRamp(cfg.stops));
+  eng.setSpeed(Math.abs(cfg.speed));
+  eng.setReverse(cfg.speed < 0);
+  eng.start();
+}
+
+(async () => {
+  const canvases = document.querySelectorAll('.logo-cycle');
+  try {
+    await Promise.all(Array.from(canvases).map(mountLogo));
+  } catch (err) {
+    const box = document.getElementById('error');
+    box.hidden = false;
+    box.textContent = `Could not load ${canvases[0].dataset.src}: ${err.message}. ` +
+      `Drop your exported file at that path next to this HTML, then reload.`;
+  }
+})();
+</script>
+
+</body>
+</html>
