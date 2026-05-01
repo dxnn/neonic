@@ -136,6 +136,120 @@
     return { width: w, height: h, indices };
   }
 
+  // ─── bake from a width-bearing stroke ───────────────────────────────────
+  // stroke: array of { x, y, pressure } in path-local coords. baseWidth is
+  // the "neutral" stroke width (matches pressure 0.5); each segment's
+  // lineWidth is scaled by `pressure * 2` so a fully-pressed stroke is 2x
+  // baseWidth and a feather-light one approaches zero. Otherwise mirrors
+  // bakeFromD's mask + index pipeline.
+  function bakeFromStroke(opts) {
+    const { stroke, scale = 1.6, padding = 24, baseWidth = 18, half = 'first' } = opts || {};
+    if (!stroke || stroke.length < 2) throw new Error('Stroke has fewer than 2 points.');
+
+    const cumLen = new Array(stroke.length);
+    cumLen[0] = 0;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 0; i < stroke.length; i++) {
+      const p = stroke[i];
+      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+      if (i > 0) {
+        const dx = p.x - stroke[i - 1].x, dy = p.y - stroke[i - 1].y;
+        cumLen[i] = cumLen[i - 1] + Math.sqrt(dx * dx + dy * dy);
+      }
+    }
+    const totalLen = cumLen[cumLen.length - 1];
+    if (totalLen < 1) throw new Error('Stroke has no length.');
+
+    const w = Math.ceil((maxX - minX) * scale + padding * 2);
+    const h = Math.ceil((maxY - minY) * scale + padding * 2);
+    const tx = padding - minX * scale;
+    const ty = padding - minY * scale;
+
+    let lenStart, lenSpan;
+    if (half === 'second') { lenStart = totalLen / 2; lenSpan = totalLen / 2; }
+    else if (half === 'full') { lenStart = 0; lenSpan = totalLen; }
+    else { lenStart = 0; lenSpan = totalLen / 2; }
+
+    const N_SEG = 254;
+    const SUBSEG = Math.max(1, Math.ceil(lenSpan * scale / 800));
+    const TOTAL = N_SEG * SUBSEG;
+
+    function sampleAtLength(L) {
+      let lo = 0, hi = cumLen.length - 1;
+      while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        if (cumLen[mid] <= L) lo = mid; else hi = mid;
+      }
+      const u = (L - cumLen[lo]) / (cumLen[hi] - cumLen[lo] || 1);
+      const a = stroke[lo], b = stroke[hi];
+      const pa = a.pressure == null ? 0.5 : a.pressure;
+      const pb = b.pressure == null ? 0.5 : b.pressure;
+      return {
+        x: a.x + (b.x - a.x) * u,
+        y: a.y + (b.y - a.y) * u,
+        pressure: pa + (pb - pa) * u,
+      };
+    }
+
+    const pts = new Array(TOTAL + 1);
+    for (let i = 0; i <= TOTAL; i++) {
+      const s = sampleAtLength(lenStart + (i / TOTAL) * lenSpan);
+      pts[i] = { x: s.x * scale + tx, y: s.y * scale + ty, pressure: s.pressure };
+    }
+
+    const idxC = document.createElement('canvas'); idxC.width = w; idxC.height = h;
+    const ictx = idxC.getContext('2d', { willReadFrequently: true });
+    ictx.lineCap = 'round'; ictx.lineJoin = 'round';
+    for (let i = 0; i < N_SEG; i++) {
+      const v = i + 1;
+      ictx.strokeStyle = 'rgb(' + v + ',0,0)';
+      const base = i * SUBSEG;
+      const mid = pts[base + (SUBSEG >> 1)];
+      ictx.lineWidth = Math.max(0.5, baseWidth * scale * mid.pressure * 2);
+      ictx.beginPath();
+      ictx.moveTo(pts[base].x, pts[base].y);
+      for (let j = 1; j <= SUBSEG; j++) ictx.lineTo(pts[base + j].x, pts[base + j].y);
+      ictx.stroke();
+    }
+    const idxData = ictx.getImageData(0, 0, w, h).data;
+
+    const mskC = document.createElement('canvas'); mskC.width = w; mskC.height = h;
+    const mctx = mskC.getContext('2d', { willReadFrequently: true });
+    mctx.lineCap = 'round'; mctx.lineJoin = 'round'; mctx.strokeStyle = '#fff';
+    for (let i = 0; i < N_SEG; i++) {
+      const base = i * SUBSEG;
+      const mid = pts[base + (SUBSEG >> 1)];
+      mctx.lineWidth = Math.max(0.5, baseWidth * scale * mid.pressure * 2 * 0.92);
+      mctx.beginPath();
+      mctx.moveTo(pts[base].x, pts[base].y);
+      for (let j = 1; j <= SUBSEG; j++) mctx.lineTo(pts[base + j].x, pts[base + j].y);
+      mctx.stroke();
+    }
+    const mskData = mctx.getImageData(0, 0, w, h).data;
+
+    const indices = new Uint8Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+      if (mskData[i * 4 + 3] < 200) { indices[i] = 0; continue; }
+      let v = idxData[i * 4]; if (v < 1) v = 1; if (v > 254) v = 254;
+      indices[i] = v;
+    }
+    {
+      const src = new Uint8Array(indices);
+      for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+        const i = y * w + x; if (src[i] === 0) continue;
+        let z = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          if (src[(y + dy) * w + (x + dx)] === 0) z++;
+        }
+        if (z >= 5) indices[i] = 0;
+      }
+    }
+
+    return { width: w, height: h, indices };
+  }
+
   // ─── runtime ────────────────────────────────────────────────────────────
   // Forward-feed model: every palette is "fed in" at palette[1], with a
   // specific color flowing outward to palette[2], [3], ... over time.
@@ -243,5 +357,5 @@
     this.ctx.putImageData(this.image, 0, 0);
   };
 
-  root.HyperDrive = { bakeFromD, CycleEngine, PALETTES };
+  root.HyperDrive = { bakeFromD, bakeFromStroke, CycleEngine, PALETTES };
 })(window);

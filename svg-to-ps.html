@@ -130,6 +130,16 @@
   .playlist-item canvas {
     width: 140px; height: 18px; border-radius: 3px; flex-shrink: 0;
   }
+  .playlist-item .rowlabel {
+    color: var(--muted); font-size: 10px;
+    text-transform: uppercase; letter-spacing: .08em;
+  }
+  .playlist-item .cycles, .playlist-item .speed {
+    width: 3em; padding: 2px 4px;
+    font: 11px ui-sans-serif, system-ui, sans-serif;
+    background: #fafaf6; color: var(--ink);
+    border: .5px solid var(--rule); border-radius: 4px;
+  }
   .playlist-item .delete {
     background: transparent; border: 0; padding: 2px 6px;
     color: var(--muted); font-size: 14px; line-height: 1;
@@ -144,6 +154,34 @@
       grid-template-areas: "draw" "animate" "bezier" "palette";
     }
     canvas#draw, canvas#bezier { height: 280px; }
+  }
+
+  /* ─── Dark mode (auto, OS preference) ───────────────────────────── */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15151a;
+      --ink: #e8e6df;
+      --muted: #8a8780;
+      --rule: rgba(232,230,223,.14);
+      --accent: #5a9fff;
+    }
+    .panel { background: #1f1f24; }
+    .panel.dark { background: #0a0a0b; }
+    canvas#draw, canvas#bezier, canvas#ramp { background: #15151a; }
+    .demo input[type=number],
+    .demo select,
+    .row input[type=number],
+    .row select,
+    .row input[type=text],
+    input[type=number], select, input[type=text] {
+      background: #15151a; color: var(--ink);
+      border-color: rgba(255,255,255,.12);
+    }
+    .playlist-item { background: #15151a; }
+    .playlist-item.active { border-color: var(--accent); background: #1c2540; }
+    .playlist-item .cycles, .playlist-item .speed {
+      background: #0e0e12; color: var(--ink);
+    }
   }
 </style>
 </head>
@@ -169,6 +207,9 @@
       <label>Stroke
         <input id="strokeW" type="range" min="6" max="64" value="11" />
         <span id="strokeW-val">11</span>
+      </label>
+      <label title="Use the variable widths captured while drawing instead of a uniform stroke">
+        <input type="checkbox" id="useDrawnWidths" /> Drawn widths
       </label>
     </div>
   </section>
@@ -230,12 +271,16 @@
       </label>
     </div>
     <div class="row" style="margin-top: 14px">
-      <label>Name
-        <input type="text" id="palName" placeholder="palette name" style="width: 12em" />
+      <label>Seed name
+        <input type="text" id="seedName" placeholder="my custom seed" style="width: 12em" />
       </label>
-      <button id="addToPlaylist">+ Add to playlist</button>
+      <button id="saveSeed">Save seed</button>
+      <span class="meta" id="seed-save-meta"></span>
     </div>
     <div id="playlist" class="playlist"></div>
+    <div class="row" id="playlistAddRow" style="justify-content: center; margin-top: 6px">
+      <button class="ghost" id="addInline" title="Add a copy of the current palette to the playlist">+ Add palette</button>
+    </div>
     <div id="modeRow" class="row mode-row" hidden>
       <span>Mode</span>
       <label><input type="radio" name="mode" value="sequential" checked /> Sequential</label>
@@ -639,15 +684,23 @@ function scheduleBake() {
 
 function rebake() {
   if (state.paths.length === 0) return;
-  const d = state.paths.map(pathToD).join(' ');
-  if (!d) return;
+  const drawnWidths = $('useDrawnWidths').checked;
   let baked;
   try {
-    baked = window.HyperDrive.bakeFromD({
-      d, scale: 1.6, padding: 24,
-      strokeWidth: +strokeWIn.value,
-      half: 'full',
-    });
+    if (drawnWidths && rawPath && rawPath.length >= 2) {
+      baked = window.HyperDrive.bakeFromStroke({
+        stroke: rawPath, scale: 1.6, padding: 24,
+        baseWidth: +strokeWIn.value, half: 'full',
+      });
+    } else {
+      const d = state.paths.map(pathToD).join(' ');
+      if (!d) return;
+      baked = window.HyperDrive.bakeFromD({
+        d, scale: 1.6, padding: 24,
+        strokeWidth: +strokeWIn.value,
+        half: 'full',
+      });
+    }
   } catch (e) {
     bakeMeta.textContent = 'bake failed: ' + e.message;
     return;
@@ -674,7 +727,48 @@ function rebake() {
 }
 
 // ─── Palette stop editor ─────────────────────────────────────────────────
+const SEEDS_KEY = 'pshift.seeds';
+function loadCustomSeeds() {
+  try { return JSON.parse(localStorage.getItem(SEEDS_KEY) || '{}'); }
+  catch { return {}; }
+}
+function saveCustomSeeds(map) {
+  localStorage.setItem(SEEDS_KEY, JSON.stringify(map));
+}
+function refreshSeedDropdown() {
+  const prev = seedSel.value;
+  seedSel.innerHTML = '';
+  for (const name of Object.keys(window.HyperDrive.PALETTES)) {
+    const o = document.createElement('option');
+    o.value = name; o.textContent = name;
+    seedSel.appendChild(o);
+  }
+  const customs = loadCustomSeeds();
+  const names = Object.keys(customs);
+  if (names.length) {
+    const sep = document.createElement('option');
+    sep.disabled = true; sep.textContent = '── saved ──';
+    seedSel.appendChild(sep);
+    for (const n of names) {
+      const o = document.createElement('option');
+      o.value = 'custom:' + n; o.textContent = n;
+      seedSel.appendChild(o);
+    }
+  }
+  if (prev && Array.from(seedSel.options).some(o => o.value === prev)) seedSel.value = prev;
+}
+
 function seedFromPreset(name) {
+  // Custom seed: stops are stored verbatim.
+  if (name && name.startsWith('custom:')) {
+    const customs = loadCustomSeeds();
+    const stored = customs[name.slice(7)];
+    if (!stored) return;
+    setStops(stored.map(s => ({ t: s.t, color: s.color.slice() })));
+    selectedStop = 0;
+    rebuildRamp();
+    return;
+  }
   const ramp = window.HyperDrive.PALETTES[name]();
   const N = ramp.length;
   const cum = new Array(N);
@@ -754,15 +848,14 @@ function setActiveIdx(idx) {
 }
 
 function addToPlaylist() {
-  const name = ($('palName').value || `palette ${playlist.length + 1}`).trim();
+  // Adds a copy of the current palette to the playlist as a new entry,
+  // selects it. Playlist entries don't have names.
   const copy = stops.map(s => ({ t: s.t, color: s.color.slice() }));
   playlist.push({
-    name,
     stops: copy,
     speed: +speedIn.value,
     cycles: 1,
   });
-  $('palName').value = '';
   setActiveIdx(playlist.length - 1);
 }
 
@@ -855,17 +948,17 @@ function renderPlaylist() {
 
     const grip = document.createElement('span');
     grip.className = 'grip';
-    grip.textContent = '☰';  // ☰
+    grip.textContent = '☰';
     item.appendChild(grip);
-
-    const name = document.createElement('span');
-    name.className = 'name';
-    name.textContent = entry.name || `palette ${i + 1}`;
-    item.appendChild(name);
 
     const cvs = document.createElement('canvas');
     drawMiniRamp(cvs, entry.stops);
     item.appendChild(cvs);
+
+    const cyclesLabel = document.createElement('span');
+    cyclesLabel.className = 'rowlabel';
+    cyclesLabel.textContent = 'cycles';
+    item.appendChild(cyclesLabel);
 
     const cycles = document.createElement('input');
     cycles.type = 'number';
@@ -873,8 +966,7 @@ function renderPlaylist() {
     cycles.max = '99';
     cycles.value = entry.cycles;
     cycles.className = 'cycles';
-    cycles.title = 'cycles before next';
-    cycles.style.cssText = 'width: 3em; padding: 2px 4px; font: 11px ui-sans-serif, system-ui, sans-serif;';
+    cycles.title = 'cycles before next palette';
     cycles.addEventListener('change', () => {
       const v = Math.max(1, Math.min(99, +cycles.value || 1));
       cycles.value = v;
@@ -883,6 +975,33 @@ function renderPlaylist() {
     });
     cycles.addEventListener('click', (e) => e.stopPropagation());
     item.appendChild(cycles);
+
+    const speedLabel = document.createElement('span');
+    speedLabel.className = 'rowlabel';
+    speedLabel.textContent = 'speed';
+    item.appendChild(speedLabel);
+
+    const speedRow = document.createElement('input');
+    speedRow.type = 'number';
+    speedRow.min = '0';
+    speedRow.max = '200';
+    speedRow.value = entry.speed;
+    speedRow.className = 'speed';
+    speedRow.title = 'palette speed';
+    speedRow.addEventListener('change', () => {
+      const v = Math.max(0, Math.min(200, +speedRow.value || 0));
+      speedRow.value = v;
+      entry.speed = v;
+      if (i === activeIdx) {
+        speedIn.value = v;
+        updateSpeedLabel();
+      }
+      if (i === displayedIdx && engine && engine.nextPalette === null) {
+        engine.setSpeed(v);
+      }
+    });
+    speedRow.addEventListener('click', (e) => e.stopPropagation());
+    item.appendChild(speedRow);
 
     const del = document.createElement('button');
     del.className = 'delete';
@@ -1136,7 +1255,13 @@ $('import').addEventListener('click', () => {
     }
     pushHistory();
     state.paths = [{ anchors: meta.anchors }];
-    rawPath = meta.anchors.map(a => ({ x: a.x, y: a.y, pressure: 0.5 }));
+    if (Array.isArray(meta.rawStroke) && meta.rawStroke.length >= 2) {
+      // Compact triple form: [x, y, pressure] — restore to objects.
+      rawPath = meta.rawStroke.map((p) => ({ x: p[0], y: p[1], pressure: p[2] }));
+    } else {
+      rawPath = meta.anchors.map((a) => ({ x: a.x, y: a.y, pressure: 0.5 }));
+    }
+    $('useDrawnWidths').checked = !!meta.useDrawnWidths;
     smoothLevel = 1.5;
     if (meta.strokeWidth != null) {
       strokeWIn.value = meta.strokeWidth;
@@ -1145,7 +1270,6 @@ $('import').addEventListener('click', () => {
     playlist.length = 0;
     for (const p of meta.palettes) {
       playlist.push({
-        name: p.name || '',
         stops: p.stops.map(s => ({ t: s.t, color: s.color.slice() })),
         speed: p.speed != null ? Math.abs(p.speed) : 60,
         cycles: p.cycles != null ? p.cycles : 1,
@@ -1174,13 +1298,17 @@ $('export').addEventListener('click', async (e) => {
   try {
     const sizeMul = +$('exportSize').value || 1;
     const exportScale = 1.6 * sizeMul;
-    const bake = window.HyperDrive.bakeFromD({
-      d: pathToD(state.paths[0]),
-      scale: exportScale,
-      padding: 24,
-      strokeWidth: +strokeWIn.value,
-      half: 'full',
-    });
+    const drawnWidths = $('useDrawnWidths').checked;
+    const bake = (drawnWidths && rawPath && rawPath.length >= 2)
+      ? window.HyperDrive.bakeFromStroke({
+          stroke: rawPath, scale: exportScale, padding: 24,
+          baseWidth: +strokeWIn.value, half: 'full',
+        })
+      : window.HyperDrive.bakeFromD({
+          d: pathToD(state.paths[0]),
+          scale: exportScale, padding: 24,
+          strokeWidth: +strokeWIn.value, half: 'full',
+        });
     // Render the PNG's static preview using palette[0] at engine offset 0
     // — i.e. the exact frame the embed will display the moment it starts.
     // The engine's formula at off=0, baseStartOff=0 maps palette index `idx`
@@ -1203,6 +1331,10 @@ $('export').addEventListener('click', async (e) => {
       canvas: off,
       indices: bake.indices,
       anchors: state.paths[0].anchors,
+      rawStroke: drawnWidths && rawPath ? rawPath.map(p => [
+        +p.x.toFixed(2), +p.y.toFixed(2), +(p.pressure ?? 0.5).toFixed(3),
+      ]) : null,
+      useDrawnWidths: drawnWidths,
       palettes: playlist,
       activeIdx: 0,            // always boot the embed on palette[0]
       playMode,
@@ -1303,18 +1435,37 @@ $('removeStop').addEventListener('click', () => {
   rebuildRamp();
 });
 
-for (const name of Object.keys(window.HyperDrive.PALETTES)) {
-  const o = document.createElement('option');
-  o.value = name; o.textContent = name;
-  seedSel.appendChild(o);
-}
+refreshSeedDropdown();
 seedSel.value = 'rainbow';
 seedSel.addEventListener('change', () => seedFromPreset(seedSel.value));
 $('reset').addEventListener('click', () => seedFromPreset(seedSel.value));
 
-$('addToPlaylist').addEventListener('click', addToPlaylist);
-$('palName').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') { e.preventDefault(); addToPlaylist(); }
+$('addInline').addEventListener('click', addToPlaylist);
+
+const seedNameIn = $('seedName');
+const seedSaveMeta = $('seed-save-meta');
+function trySaveSeed() {
+  const name = (seedNameIn.value || '').trim();
+  if (!name) {
+    seedSaveMeta.textContent = 'name required';
+    return;
+  }
+  const seeds = loadCustomSeeds();
+  seeds[name] = stops.map(s => ({ t: s.t, color: s.color.slice() }));
+  saveCustomSeeds(seeds);
+  seedNameIn.value = '';
+  refreshSeedDropdown();
+  seedSel.value = 'custom:' + name;
+  seedSaveMeta.textContent = `saved "${name}"`;
+  setTimeout(() => { seedSaveMeta.textContent = ''; }, 1800);
+}
+$('saveSeed').addEventListener('click', trySaveSeed);
+seedNameIn.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); trySaveSeed(); }
+});
+
+$('useDrawnWidths').addEventListener('change', () => {
+  scheduleBake();
 });
 document.querySelectorAll('input[name="mode"]').forEach((r) => {
   r.addEventListener('change', (e) => {
@@ -1332,7 +1483,7 @@ window.addEventListener('resize', () => {
 // ─── Init ────────────────────────────────────────────────────────────────
 // Playlist always has at least one entry. The first "Add to playlist"
 // click yields a second entry (and reveals the mode toggle).
-playlist.push({ name: 'palette 1', stops: [], speed: 60, cycles: 1 });
+playlist.push({ stops: [], speed: 60, cycles: 1 });
 activeIdx = 0;
 displayedIdx = 0;
 stops = playlist[0].stops;
