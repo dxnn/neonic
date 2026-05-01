@@ -1,0 +1,1049 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>SVG path → palette-cycle · process</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root {
+    --bg: #f7f5ee;
+    --ink: #15151a;
+    --muted: #6b6963;
+    --rule: rgba(21,21,26,.12);
+    --accent: #1f7bff;
+    --code-bg: #0e0e12;
+    --code-ink: #d6d3c7;
+  }
+  html, body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 ui-serif, Georgia, "Iowan Old Style", serif; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 64px 28px 120px; }
+
+  header h1 { font-weight: 500; font-size: 36px; letter-spacing: -0.02em;
+    margin: 0 0 8px; line-height: 1.1; }
+  header .deck { color: var(--muted); font-size: 18px; max-width: 56ch;
+    margin: 0 0 8px; }
+  header .meta { color: var(--muted); font-size: 13px;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    text-transform: uppercase; letter-spacing: .12em; margin-top: 24px; }
+
+  nav.toc { margin: 36px 0 56px; padding: 18px 22px;
+    border-top: .5px solid var(--rule); border-bottom: .5px solid var(--rule);
+    font: 13px/1.7 ui-sans-serif, system-ui, sans-serif; color: var(--muted); }
+  nav.toc ol { margin: 0; padding-left: 20px; }
+  nav.toc a { color: var(--ink); text-decoration: none; }
+  nav.toc a:hover { color: var(--accent); }
+  nav.toc .stage-num { color: var(--muted); display: inline-block; width: 2.4em; }
+
+  section.stage { margin: 64px 0 0; padding-top: 32px;
+    border-top: .5px solid var(--rule); }
+  section.stage h2 { font-weight: 500; font-size: 24px; letter-spacing: -0.01em;
+    margin: 0 0 4px; }
+  section.stage .stage-tag { color: var(--muted); font-size: 12px;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    text-transform: uppercase; letter-spacing: .12em; margin-bottom: 16px; }
+  section.stage p { max-width: 60ch; }
+  section.stage p .note { color: var(--muted); }
+
+  .demo { margin: 28px 0; padding: 18px; background: #fff;
+    border: .5px solid var(--rule); border-radius: 10px; }
+  .demo .label { color: var(--muted); font-size: 11px;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    text-transform: uppercase; letter-spacing: .12em; margin-bottom: 10px; }
+  .demo textarea { width: 100%; box-sizing: border-box; height: 110px;
+    background: #fafaf6; color: var(--ink);
+    border: .5px solid var(--rule); border-radius: 6px; padding: 10px;
+    font: 12px/1.45 ui-monospace, "SF Mono", Menlo, monospace; resize: vertical; }
+  .demo .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    margin-top: 10px; font: 12px ui-sans-serif, system-ui, sans-serif; }
+  .demo button { appearance: none; background: var(--ink); color: #fff;
+    border: 0; border-radius: 6px; padding: 7px 12px; font: inherit;
+    font-weight: 500; cursor: default; }
+  .demo button.ghost { background: transparent; color: var(--ink);
+    border: .5px solid var(--rule); }
+  .demo .out { margin-top: 14px; padding: 12px; background: #fafaf6;
+    border-radius: 6px; font: 12px/1.5 ui-monospace, monospace;
+    color: var(--ink); white-space: pre-wrap; word-break: break-all;
+    min-height: 1.5em; }
+  .demo .out.err { color: #b3261e; }
+
+  pre.code { background: var(--code-bg); color: var(--code-ink);
+    padding: 16px 18px; border-radius: 8px; overflow: auto;
+    font: 12px/1.55 ui-monospace, monospace; margin: 18px 0; }
+  pre.code .c { color: #7a7c80; }
+  pre.code .k { color: #c39bd3; }
+  pre.code .s { color: #a3d977; }
+  pre.code .n { color: #f0c674; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="meta">A walk-through · SVG path → palette-cycle</div>
+  <h1>From a single <code>d=&hellip;</code> string<br>to a self-animating canvas.</h1>
+  <p class="deck">No SVG animation, no CSS keyframes, no per-frame redraw of the geometry. Just one <em>indexed buffer</em>, one <em>palette</em>, and a tiny loop.</p>
+</header>
+
+<nav class="toc">
+  <ol>
+    <li><a href="#s1"><span class="stage-num">01</span> Parse the path</a></li>
+    <li><a href="#s2"><span class="stage-num">02</span> Sample points along it</a></li>
+    <li><a href="#s3"><span class="stage-num">03</span> Stroke 254 colored segments → index canvas</a></li>
+    <li><a href="#s4"><span class="stage-num">04</span> Mask &amp; combine into a <code>Uint8Array</code></a></li>
+    <li><a href="#s5"><span class="stage-num">05</span> Build a palette LUT</a></li>
+    <li><a href="#s6"><span class="stage-num">06</span> The cycling render loop</a></li>
+    <li><a href="#s7"><span class="stage-num">07</span> Custom palettes from stops</a></li>
+    <li><a href="#s8"><span class="stage-num">08</span> Smooth palette transitions</a></li>
+    <li><a href="#s9"><span class="stage-num">09</span> Self-describing PNG</a></li>
+  </ol>
+</nav>
+
+<!-- ─── Stage 1 ──────────────────────────────────────────────────────── -->
+<section class="stage" id="s1">
+  <div class="stage-tag">Stage 01</div>
+  <h2>Parse the path.</h2>
+  <p>Users paste any of three things: a raw <code>d</code> attribute value (<code>M10,10 L100,10 …</code>), a full <code>&lt;path d="…"&gt;</code> tag, or a complete <code>&lt;svg&gt;</code> document. We need to dig the <code>d</code> string out of whatever they gave us &mdash; everything downstream needs that one string.</p>
+
+  <div class="demo">
+    <div class="label">Try it</div>
+    <textarea id="s1-in">&lt;svg viewBox="0 0 100 100"&gt;
+  &lt;path d="M10,50 Q 50,10 90,50 T 170,50" stroke="black" fill="none"/&gt;
+&lt;/svg&gt;</textarea>
+    <div class="row">
+      <button id="s1-go">Extract <code>d</code></button>
+      <button class="ghost" id="s1-ex1">Example: SVG tag</button>
+      <button class="ghost" id="s1-ex2">Example: raw <code>d</code></button>
+      <span style="color:var(--muted)" id="s1-meta"></span>
+    </div>
+    <div class="out" id="s1-out">(click extract)</div>
+  </div>
+
+  <p class="note">Then we stash that <code>d</code> on a hidden inline <code>&lt;path&gt;</code> &mdash; the browser's SVG engine will do the heavy lifting in the next stage with <code>getTotalLength()</code> and <code>getPointAtLength()</code>.</p>
+
+<pre class="code"><span class="k">function</span> extractD(text) {
+  text = text.trim();
+  <span class="c">// 1) anything containing d="…"</span>
+  <span class="k">const</span> m = text.match(<span class="s">/\bd\s*=\s*"([^"]+)"/</span>);
+  <span class="k">if</span> (m) <span class="k">return</span> m[<span class="n">1</span>];
+  <span class="c">// 2) starts with M/m → assume it's a raw d</span>
+  <span class="k">if</span> (<span class="s">/^[Mm]/</span>.test(text)) <span class="k">return</span> text;
+  <span class="k">throw new</span> Error(<span class="s">"No path d=… found in input."</span>);
+}</pre>
+</section>
+
+<!-- placeholder anchors so the TOC still scrolls cleanly -->
+<section class="stage" id="s2">
+  <div class="stage-tag">Stage 02</div>
+  <h2>Sample points along the path.</h2>
+  <p>Now we ask the browser for the path's total length, then walk it at <code>N</code> evenly-spaced positions, getting an <code>{x, y}</code> for each. The number of samples is the only knob that decides curve fidelity &mdash; too few and Bézier arcs become polygons; too many and the bake is slow with no visible gain.</p>
+  <p>We also pick a <em>span</em> here: typically just the first half of the path, so the cycling band has somewhere to "go" without a visible seam where the band wraps back on itself.</p>
+
+  <div class="demo">
+    <div class="label">Walk the path</div>
+    <div class="row" style="margin-top:0">
+      <label>Samples (N) <input id="s2-n" type="range" min="6" max="600" value="60" style="width:160px;vertical-align:middle"/></label>
+      <span style="color:var(--muted)" id="s2-meta"></span>
+      <span style="margin-left:auto">
+        <label>Span
+          <select id="s2-span">
+            <option value="first">first half</option>
+            <option value="full">full</option>
+            <option value="second">second half</option>
+          </select>
+        </label>
+      </span>
+    </div>
+    <canvas id="s2-canvas" width="820" height="220" style="display:block;width:100%;background:#fafaf6;border-radius:6px;margin-top:12px"></canvas>
+  </div>
+
+<pre class="code"><span class="c">// Stash the d on a hidden &lt;path&gt; so we can ask the SVG engine</span>
+<span class="c">// for arc-length parametrization.</span>
+<span class="k">const</span> svg = document.createElementNS(NS, <span class="s">'svg'</span>);
+<span class="k">const</span> p   = document.createElementNS(NS, <span class="s">'path'</span>);
+p.setAttribute(<span class="s">'d'</span>, d);
+svg.appendChild(p); document.body.appendChild(svg);
+
+<span class="k">const</span> total = p.getTotalLength();
+<span class="k">const</span> pts   = <span class="k">new</span> Array(N + <span class="n">1</span>);
+<span class="k">for</span> (<span class="k">let</span> i = <span class="n">0</span>; i &lt;= N; i++) {
+  <span class="k">const</span> t = (i / N) * total * <span class="n">0.5</span>;   <span class="c">// first half</span>
+  <span class="k">const</span> q = p.getPointAtLength(t);
+  pts[i] = { x: q.x, y: q.y };
+}</pre>
+</section>
+<section class="stage" id="s3">
+  <div class="stage-tag">Stage 03</div>
+  <h2>Stroke 254 colored segments → index canvas.</h2>
+  <p>Here's the trick. We split the sample list into <code>N = 254</code> consecutive segments and stroke each one with a unique R-channel value: segment <code>i</code> gets <code>rgb(i+1, 0, 0)</code>. The stroke is fat and round-capped, so adjacent segments overlap and form a continuous fill. The <em>red channel</em> of the resulting bitmap <em>is</em> our per-pixel index buffer — read straight off the canvas.</p>
+  <p>Stroking line segments would polygonize curves, so each "segment" actually walks a few sub-segments along the path before changing index. That keeps Béziers smooth while preserving the 1..254 encoding.</p>
+
+  <div class="demo">
+    <div class="label">Index encoding</div>
+    <div class="row" style="margin-top:0">
+      <label>Stroke width <input id="s3-w" type="range" min="4" max="48" value="22" style="width:120px;vertical-align:middle"/></label>
+      <label>View
+        <select id="s3-view">
+          <option value="raw">raw (red channel)</option>
+          <option value="hue" selected>decoded (hue)</option>
+        </select>
+      </label>
+      <span style="color:var(--muted);margin-left:auto" id="s3-meta"></span>
+    </div>
+    <canvas id="s3-canvas" width="820" height="220" style="display:block;width:100%;background:#0a0a0b;border-radius:6px;margin-top:12px"></canvas>
+  </div>
+
+<pre class="code"><span class="k">const</span> idx = document.createElement(<span class="s">'canvas'</span>);
+idx.width = W; idx.height = H;
+<span class="k">const</span> ictx = idx.getContext(<span class="s">'2d'</span>);
+ictx.lineWidth = STROKE_W;
+ictx.lineCap   = <span class="s">'round'</span>;
+ictx.lineJoin  = <span class="s">'round'</span>;
+
+<span class="k">for</span> (<span class="k">let</span> i = <span class="n">0</span>; i &lt; <span class="n">254</span>; i++) {
+  ictx.strokeStyle = <span class="s">`rgb(<span class="n">${i+1}</span>, 0, 0)`</span>;
+  ictx.beginPath();
+  <span class="k">const</span> base = i * SUBSEG;
+  ictx.moveTo(pts[base].x, pts[base].y);
+  <span class="k">for</span> (<span class="k">let</span> j = <span class="n">1</span>; j &lt;= SUBSEG; j++)
+    ictx.lineTo(pts[base+j].x, pts[base+j].y);
+  ictx.stroke();
+}
+<span class="c">// idx canvas: red channel now encodes "where along the path"</span></pre>
+</section>
+<section class="stage" id="s4">
+  <div class="stage-tag">Stage 04</div>
+  <h2>Mask &amp; combine into a <code>Uint8Array</code>.</h2>
+  <p>The index canvas has soft anti-aliased edges where indices fade to zero, which would flicker badly under cycling. So we paint a second canvas — same geometry, same path, but a single solid stroke — and use <em>its</em> alpha channel as the binary "is this pixel inside the shape?" decision. We then walk every pixel once and pack the result into a flat <code>Uint8Array</code>: 0 means transparent, 1..254 means "this index in the palette".</p>
+  <p>One typed array, one byte per pixel. That's the entire baked artifact; everything else can be thrown away.</p>
+
+  <div class="demo">
+    <div class="label">The bake</div>
+    <div class="row" style="margin-top:0">
+      <label>Show
+        <select id="s4-view">
+          <option value="combined" selected>combined</option>
+          <option value="mask">mask only</option>
+          <option value="index">index only</option>
+        </select>
+      </label>
+      <span style="color:var(--muted);margin-left:auto" id="s4-meta"></span>
+    </div>
+    <canvas id="s4-canvas" width="820" height="220" style="display:block;width:100%;background:#0a0a0b;border-radius:6px;margin-top:12px"></canvas>
+  </div>
+
+<pre class="code"><span class="c">// Bake into one flat byte-per-pixel buffer.</span>
+<span class="k">const</span> indices = <span class="k">new</span> Uint8Array(W * H);
+<span class="k">for</span> (<span class="k">let</span> i = <span class="n">0</span>; i &lt; W * H; i++) {
+  <span class="k">if</span> (mask[i*<span class="n">4</span>+<span class="n">3</span>] &lt; <span class="n">200</span>) { indices[i] = <span class="n">0</span>; <span class="k">continue</span>; }
+  <span class="k">let</span> v = idxData[i*<span class="n">4</span>];
+  <span class="k">if</span> (v &lt; <span class="n">1</span>)   v = <span class="n">1</span>;
+  <span class="k">if</span> (v &gt; <span class="n">254</span>) v = <span class="n">254</span>;
+  indices[i] = v;
+}</pre>
+</section>
+
+<section class="stage" id="s5">
+  <div class="stage-tag">Stage 05</div>
+  <h2>Build a palette LUT.</h2>
+  <p>A palette is a length-256 lookup table of 32-bit RGBA values. Slot 0 is always transparent. Slots 1..255 hold a smooth color ramp built by interpolating between a handful of stops. Different palettes — sodium, plasma, rainbow, cyan — are just different stop lists. The whole bake stays the same; only this 1KB lookup changes.</p>
+
+  <div class="demo">
+    <div class="label">Pick a ramp</div>
+    <div class="row" style="margin-top:0">
+      <label>Palette
+        <select id="s5-pal"></select>
+      </label>
+      <span style="color:var(--muted)" id="s5-meta"></span>
+    </div>
+    <canvas id="s5-canvas" width="820" height="60" style="display:block;width:100%;background:#0a0a0b;border-radius:6px;margin-top:12px"></canvas>
+  </div>
+
+<pre class="code"><span class="k">const</span> palette = <span class="k">new</span> Uint32Array(<span class="n">256</span>);
+palette[<span class="n">0</span>] = <span class="n">0</span>; <span class="c">// transparent</span>
+<span class="k">for</span> (<span class="k">let</span> i = <span class="n">0</span>; i &lt; <span class="n">255</span>; i++) {
+  <span class="k">const</span> [r, g, b] = ramp[i];           <span class="c">// from your stops</span>
+  palette[i + <span class="n">1</span>] = (<span class="n">255</span> &lt;&lt; <span class="n">24</span>) | (b &lt;&lt; <span class="n">16</span>) | (g &lt;&lt; <span class="n">8</span>) | r;
+}</pre>
+</section>
+
+<section class="stage" id="s6">
+  <div class="stage-tag">Stage 06</div>
+  <h2>The render loop.</h2>
+  <p>This is the punchline. Every frame:</p>
+  <ol>
+    <li>Bump <code>offset</code> by <code>speed × dt</code>.</li>
+    <li>Rebuild the 256-entry palette so slot <code>i+1</code> reads from <code>ramp[(i+offset) mod 255]</code>. (1KB worth of work.)</li>
+    <li>Walk the indices buffer once, writing <code>data32[i] = palette[indices[i]]</code>.</li>
+    <li><code>putImageData</code>.</li>
+  </ol>
+  <p>That's it. No SVG, no <code>drawPath</code>, no compositing. The geometry was baked once. Animation is just "shift a 1KB lookup, then do one tight pass over a typed array." A 1500×600 logo runs at 60fps with cycles to spare.</p>
+
+  <div class="demo">
+    <div class="label">Live</div>
+    <div class="row" style="margin-top:0">
+      <label>Palette
+        <select id="s6-pal"></select>
+      </label>
+      <label>Speed <input id="s6-speed" type="range" min="0" max="200" value="60" style="width:160px;vertical-align:middle"/></label>
+      <span style="color:var(--muted);margin-left:auto" id="s6-meta"></span>
+    </div>
+    <canvas id="s6-canvas" width="820" height="220" style="display:block;width:100%;background:#0a0a0b;border-radius:6px;margin-top:12px"></canvas>
+  </div>
+
+<pre class="code"><span class="k">function</span> frame(now) {
+  <span class="k">const</span> dt = (now - last) / <span class="n">1000</span>; last = now;
+  offset += speed * dt;
+
+  <span class="c">// rotate the palette (cheap — 1KB)</span>
+  <span class="k">for</span> (<span class="k">let</span> i = <span class="n">0</span>; i &lt; <span class="n">255</span>; i++) {
+    <span class="k">const</span> k = ((offset - i) % <span class="n">255</span> + <span class="n">255</span>) % <span class="n">255</span>;
+    palette[i + <span class="n">1</span>] = ramp32[k | <span class="n">0</span>];
+  }
+
+  <span class="c">// the hot loop — one lookup per pixel</span>
+  <span class="k">for</span> (<span class="k">let</span> i = <span class="n">0</span>; i &lt; n; i++) data32[i] = palette[indices[i]];
+  ctx.putImageData(image, <span class="n">0</span>, <span class="n">0</span>);
+
+  requestAnimationFrame(frame);
+}</pre>
+
+  <p class="note">Each frame, palette index <code>i+1</code> reads ramp position <code>(offset - i) mod 255</code>. Adjacent palette indices read adjacent ramp positions; as <code>offset</code> grows, every pixel sees the next color in the ramp one tick later than its neighbour. That's the entire animation.</p>
+</section>
+
+<!-- ─── Stage 7 ──────────────────────────────────────────────────────── -->
+<section class="stage" id="s7">
+  <div class="stage-tag">Stage 07</div>
+  <h2>Custom palettes from stops.</h2>
+  <p>The presets are seven hand-rolled lookup tables, but the format underneath is just a list of color stops at positions in <code>[0, 1]</code>. Linear-interpolate between adjacent stops and you have any 255-entry ramp: sodium-glow becomes plasma becomes a personal one with three teal stops crammed into the middle.</p>
+
+  <div class="demo">
+    <div class="label">Drag the stops along the bar</div>
+    <canvas id="s7-canvas" width="820" height="80" style="display:block;width:100%;background:#0a0a0b;border-radius:6px"></canvas>
+    <div class="row">
+      <span style="color:var(--muted)">stops re-flow the ramp on the fly</span>
+      <span style="color:var(--muted);margin-left:auto" id="s7-meta"></span>
+    </div>
+  </div>
+
+<pre class="code"><span class="k">function</span> buildRamp(stops) {
+  <span class="k">const</span> sorted = stops.slice().sort((a,b) =&gt; a.t - b.t);
+  <span class="k">const</span> out = <span class="k">new</span> Array(<span class="n">255</span>);
+  <span class="k">for</span> (<span class="k">let</span> i = <span class="n">0</span>; i &lt; <span class="n">255</span>; i++) {
+    <span class="k">const</span> t = i / <span class="n">254</span>;
+    <span class="c">// find the two stops bracketing t</span>
+    <span class="k">let</span> a = sorted[<span class="n">0</span>], b = sorted[sorted.length - <span class="n">1</span>];
+    <span class="k">for</span> (<span class="k">let</span> k = <span class="n">0</span>; k &lt; sorted.length - <span class="n">1</span>; k++) {
+      <span class="k">if</span> (t &gt;= sorted[k].t &amp;&amp; t &lt;= sorted[k+<span class="n">1</span>].t) {
+        a = sorted[k]; b = sorted[k+<span class="n">1</span>]; <span class="k">break</span>;
+      }
+    }
+    <span class="k">const</span> u = (t - a.t) / (b.t - a.t || <span class="n">1</span>);
+    out[i] = [
+      <span class="n">Math</span>.round(a.color[<span class="n">0</span>] + (b.color[<span class="n">0</span>] - a.color[<span class="n">0</span>]) * u),
+      <span class="n">Math</span>.round(a.color[<span class="n">1</span>] + (b.color[<span class="n">1</span>] - a.color[<span class="n">1</span>]) * u),
+      <span class="n">Math</span>.round(a.color[<span class="n">2</span>] + (b.color[<span class="n">2</span>] - a.color[<span class="n">2</span>]) * u),
+    ];
+  }
+  <span class="k">return</span> out;
+}</pre>
+
+  <p class="note">The stop list is the <em>only</em> per-palette state we ever ship — at most a few dozen <code>{t, color}</code> pairs. Everything downstream operates on the 255-entry ramp it produces.</p>
+</section>
+
+<!-- ─── Stage 8 ──────────────────────────────────────────────────────── -->
+<section class="stage" id="s8">
+  <div class="stage-tag">Stage 08</div>
+  <h2>Smooth palette transitions.</h2>
+  <p>Switching from one palette to another mid-cycle is jarring if you do it as a hard cut: every position on the path snaps to a new color in the same frame, even when the palettes are similar. The trick is to feed the new palette in at <em>one</em> position — palette[1], the head of the cycle — and let the cycle's existing motion carry it along the path.</p>
+  <p>Each frame we split the read by <em>tape position</em> <code>s = offset − i</code>. Cells past the boundary read from <code>p2</code>; cells behind still read from <code>p1</code>. As <code>offset</code> advances, the boundary moves through the ramp one slot at a time. After 254 ticks every visible position has been swept — the new palette is fully in, and we promote it to base.</p>
+
+  <div class="demo">
+    <div class="label">Drag the slider — watch the boundary sweep</div>
+    <canvas id="s8-strip" width="820" height="80" style="display:block;width:100%;background:#0a0a0b;border-radius:6px"></canvas>
+    <div class="row" style="margin-top:10px">
+      <label>delta <input id="s8-delta" type="range" min="0" max="254" value="0" style="width:280px;vertical-align:middle"/></label>
+      <span style="color:var(--muted)" id="s8-meta">0/254 — fully p1</span>
+    </div>
+    <canvas id="s8-live" width="820" height="220" style="display:block;width:100%;background:#0a0a0b;border-radius:6px;margin-top:14px"></canvas>
+    <div class="row">
+      <button id="s8-trigger">Trigger live transition →</button>
+      <span style="color:var(--muted);margin-left:auto" id="s8-live-meta"></span>
+    </div>
+  </div>
+
+<pre class="code"><span class="c">// Inside _writePalette: split each palette index by tape position.</span>
+<span class="k">for</span> (<span class="k">let</span> i = <span class="n">0</span>; i &lt; <span class="n">255</span>; i++) {
+  <span class="k">const</span> s = offset - i;
+  <span class="k">let</span> ramp, pos;
+  <span class="k">if</span> (nextPalette &amp;&amp; s &gt;= nextStartOff) {
+    ramp = nextPalette;                      <span class="c">// swept — read p2</span>
+    pos  = (s - nextStartOff) % <span class="n">255</span>;
+  } <span class="k">else</span> {
+    ramp = basePalette;                      <span class="c">// not swept — p1</span>
+    pos  = (s - baseStartOff) % <span class="n">255</span>;
+  }
+  palette[i + <span class="n">1</span>] = sample(ramp, pos);
+}
+
+<span class="c">// Promote when every visible position has been swept.</span>
+<span class="k">if</span> (nextPalette &amp;&amp; offset - nextStartOff &gt;= <span class="n">254</span>) {
+  basePalette = nextPalette;
+  baseStartOff = nextStartOff;
+  nextPalette = <span class="n">null</span>;
+}</pre>
+
+  <p class="note">The watcher above schedules <code>nextStartOff = baseStartOff + cycles × 255</code> so the swap lands exactly when palette[1] would have wrapped from <code>p1[254]</code> back to <code>p1[0]</code> — instead, palette[1] reads <code>p2[0]</code>, and <code>p2[1]</code> next tick, and so on. No tween, no wall clock, just the cycle's natural motion doing the work.</p>
+</section>
+
+<!-- ─── Stage 9 ──────────────────────────────────────────────────────── -->
+<section class="stage" id="s9">
+  <div class="stage-tag">Stage 09</div>
+  <h2>Self-describing PNG.</h2>
+  <p>The finished logo wants four things to be portable: the indexed buffer (the bake), the palette stops (so you can re-render), the editable bezier anchors (so you can come back and tweak), and the cycle config (speed, mode, ordering). All of that fits comfortably in a few KB of JSON.</p>
+  <p>Rather than ship a JSON sidecar, we put it inside the PNG itself. The PNG body is an RGBA snapshot of the cycling output — so the file shows up in Finder, GitHub diffs, og:image previews, anywhere — and an <code>iTXt</code> chunk keyed <code>pshift</code> carries the metadata. Save it as <code>*.pshift.png</code>; the runtime reads the chunk, the rest of the world sees a normal PNG.</p>
+
+  <div class="demo">
+    <div class="label">PNG layout</div>
+<pre style="background:#fafaf6;color:var(--ink);padding:14px;border-radius:6px;margin:0;font:12px/1.55 ui-monospace,monospace;white-space:pre">PNG signature  <span style="color:var(--muted)">— 8 bytes</span>
+IHDR           <span style="color:var(--muted)">— width × height, color type 6 (RGBA)</span>
+IDAT*          <span style="color:var(--muted)">— compressed RGBA preview pixels</span>
+iTXt           <span style="color:var(--muted)">— keyword "pshift", text = JSON {</span>
+                 <span style="color:var(--muted)">version, width, height,</span>
+                 <span style="color:var(--muted)">indices  (base64 Uint8Array, 1 byte/pixel),</span>
+                 <span style="color:var(--muted)">anchors  (bezier control points, for round-trip),</span>
+                 <span style="color:var(--muted)">palettes (array of {name, stops, speed, cycles}),</span>
+                 <span style="color:var(--muted)">activeIdx, playMode, strokeWidth, scale, padding</span>
+               <span style="color:var(--muted)">}</span>
+IEND           <span style="color:var(--muted)">— end of stream</span></pre>
+    <div class="row" style="margin-top:14px">
+      <button id="s9-fetch">Fetch logo.pshift.png &amp; parse</button>
+      <span style="color:var(--muted);margin-left:auto" id="s9-meta"></span>
+    </div>
+    <div class="out" id="s9-out">(click fetch)</div>
+  </div>
+
+  <p>Embedding one on a page is four script tags and a one-liner:</p>
+
+<pre class="code"><span class="s">&lt;canvas class="logo-cycle" data-src="logo.pshift.png"&gt;&lt;/canvas&gt;</span>
+
+<span class="s">&lt;script src="logo-engine-standalone.js"&gt;&lt;/script&gt;</span>
+<span class="s">&lt;script src="pshift-png.js"&gt;</span>          <span class="c">// codec for the iTXt chunk</span>
+<span class="s">&lt;/script&gt;</span>
+<span class="s">&lt;script src="pshift-loader.js"&gt;</span>       <span class="c">// playlist scheduler + crossfade</span>
+<span class="s">&lt;/script&gt;</span>
+<span class="s">&lt;script&gt;</span>PshiftLoader.mountAll(<span class="s">'.logo-cycle'</span>);<span class="s">&lt;/script&gt;</span></pre>
+
+  <p>The loader pulls the PNG, decodes the indices straight out of the iTXt chunk (no rebake), pipes the palette stops through <code>buildRamp</code>, and runs the playlist scheduler from Stage 08 if there's more than one palette. The static preview the file ships with is rendered from palette[0] at <code>offset = 0</code> — so what you see in Finder matches the first frame the engine paints.</p>
+
+  <p style="margin-top:32px">Now go run it on something:</p>
+  <p>
+    <a href="svg-to-ps.html" style="display:inline-block;padding:10px 16px;background:var(--ink);color:#fff;border-radius:6px;text-decoration:none;font:13px ui-sans-serif,system-ui,sans-serif;font-weight:500">Open the drawing tool →</a>
+    &nbsp;
+    <a href="load-svg.html" style="display:inline-block;padding:10px 16px;background:transparent;color:var(--ink);border:.5px solid var(--rule);border-radius:6px;text-decoration:none;font:13px ui-sans-serif,system-ui,sans-serif;font-weight:500">Or paste a path →</a>
+  </p>
+</section>
+
+</div>
+
+<script src="logo-engine-standalone.js"></script>
+<script src="pshift-png.js"></script>
+<script src="pshift-loader.js"></script>
+<script>
+// Shared across both script blocks
+window.DEMO_D = "M40,140 C 100,20 200,260 280,120 S 460,20 560,140 S 740,260 800,120";
+</script>
+<script>
+// ─── Stage 4 ────────────────────────────────────────────────────────────
+(function () {
+  const DEMO_D = window.DEMO_D;
+  const NS = 'http://www.w3.org/2000/svg';
+  const cvs = document.getElementById('s4-canvas');
+  const ctx = cvs.getContext('2d');
+  const viewSel = document.getElementById('s4-view');
+  const meta = document.getElementById('s4-meta');
+  const W = cvs.width, H = cvs.height;
+
+  const svg = document.createElementNS(NS, 'svg');
+  svg.style.cssText = 'position:absolute;left:-9999px';
+  document.body.appendChild(svg);
+  const p = document.createElementNS(NS, 'path');
+  p.setAttribute('d', DEMO_D);
+  svg.appendChild(p);
+  const totalLen = p.getTotalLength();
+
+  const N_SEG = 254, SUBSEG = 4, TOTAL = N_SEG * SUBSEG;
+  const pts = new Array(TOTAL + 1);
+  for (let i = 0; i <= TOTAL; i++) {
+    const q = p.getPointAtLength((i / TOTAL) * totalLen * 0.5);
+    pts[i] = { x: q.x, y: q.y };
+  }
+  const STROKE_W = 22;
+
+  // index canvas
+  const ic = document.createElement('canvas'); ic.width = W; ic.height = H;
+  const ictx = ic.getContext('2d', { willReadFrequently: true });
+  ictx.lineCap='round'; ictx.lineJoin='round'; ictx.lineWidth = STROKE_W;
+  for (let i = 0; i < N_SEG; i++) {
+    ictx.strokeStyle = `rgb(${i+1},0,0)`;
+    ictx.beginPath();
+    const base = i * SUBSEG;
+    ictx.moveTo(pts[base].x, pts[base].y);
+    for (let j = 1; j <= SUBSEG; j++) ictx.lineTo(pts[base+j].x, pts[base+j].y);
+    ictx.stroke();
+  }
+  // mask canvas
+  const mc = document.createElement('canvas'); mc.width = W; mc.height = H;
+  const mctx = mc.getContext('2d', { willReadFrequently: true });
+  mctx.lineCap='round'; mctx.lineJoin='round'; mctx.lineWidth = STROKE_W * 0.92;
+  mctx.strokeStyle = '#fff';
+  mctx.beginPath();
+  mctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i <= TOTAL; i++) mctx.lineTo(pts[i].x, pts[i].y);
+  mctx.stroke();
+
+  const idxData = ictx.getImageData(0,0,W,H).data;
+  const mskData = mctx.getImageData(0,0,W,H).data;
+
+  // bake to Uint8
+  const indices = new Uint8Array(W * H);
+  let nLit = 0;
+  for (let i = 0; i < W*H; i++) {
+    if (mskData[i*4+3] < 200) { indices[i] = 0; continue; }
+    let v = idxData[i*4]; if (v < 1) v = 1; if (v > 254) v = 254;
+    indices[i] = v; nLit++;
+  }
+  meta.textContent = `${nLit.toLocaleString()} lit pixels · ${(indices.byteLength/1024).toFixed(1)} KB`;
+
+  function present() {
+    const view = viewSel.value;
+    const im = ctx.createImageData(W, H);
+    const d = im.data;
+    if (view === 'mask') {
+      for (let i = 0; i < W*H; i++) {
+        if (indices[i] === 0) continue;
+        d[i*4]=255; d[i*4+1]=255; d[i*4+2]=255; d[i*4+3]=255;
+      }
+    } else if (view === 'index') {
+      for (let i = 0; i < W*H; i++) {
+        const v = indices[i]; if (!v) continue;
+        const g = ((v - 1) / 253) * 255 | 0;
+        d[i*4]=g; d[i*4+1]=g; d[i*4+2]=g; d[i*4+3]=255;
+      }
+    } else {
+      // combined: hue-color
+      for (let i = 0; i < W*H; i++) {
+        const v = indices[i]; if (!v) continue;
+        const t = (v - 1) / 253;
+        const h = t * 270, s = 0.85, l = 0.5;
+        const c = (1 - Math.abs(2*l - 1)) * s;
+        const hp = h / 60;
+        const x = c * (1 - Math.abs(hp % 2 - 1));
+        let rr=0,gg=0,bb=0;
+        if (hp < 1) { rr=c; gg=x; }
+        else if (hp < 2) { rr=x; gg=c; }
+        else if (hp < 3) { gg=c; bb=x; }
+        else if (hp < 4) { gg=x; bb=c; }
+        else if (hp < 5) { rr=x; bb=c; }
+        else { rr=c; bb=x; }
+        const m = l - c/2;
+        d[i*4] = ((rr+m)*255)|0; d[i*4+1] = ((gg+m)*255)|0; d[i*4+2] = ((bb+m)*255)|0; d[i*4+3] = 255;
+      }
+    }
+    ctx.fillStyle = '#0a0a0b'; ctx.fillRect(0,0,W,H);
+    ctx.putImageData(im, 0, 0);
+  }
+  viewSel.addEventListener('change', present);
+  present();
+})();
+
+// ─── Stage 5 ────────────────────────────────────────────────────────────
+(function () {
+  const cvs = document.getElementById('s5-canvas');
+  const ctx = cvs.getContext('2d');
+  const sel = document.getElementById('s5-pal');
+  const meta = document.getElementById('s5-meta');
+  const W = cvs.width, H = cvs.height;
+  const palettes = window.HyperDrive.PALETTES;
+  for (const name of Object.keys(palettes)) {
+    const o = document.createElement('option'); o.value = name; o.textContent = name;
+    sel.appendChild(o);
+  }
+  function draw() {
+    const ramp = palettes[sel.value]();
+    const im = ctx.createImageData(W, H);
+    const d = im.data;
+    for (let x = 0; x < W; x++) {
+      const t = x / (W - 1);
+      const idx = Math.min(254, Math.floor(t * 255));
+      const [r, g, b] = ramp[idx];
+      for (let y = 0; y < H; y++) {
+        const i = (y * W + x) * 4;
+        d[i]=r; d[i+1]=g; d[i+2]=b; d[i+3]=255;
+      }
+    }
+    ctx.putImageData(im, 0, 0);
+    meta.textContent = `255 stops · 1024 bytes (Uint32Array(256))`;
+  }
+  sel.addEventListener('change', draw);
+  sel.value = 'rainbow'; draw();
+})();
+
+// ─── Stage 6: live engine on a small demo path ──────────────────────────
+(function () {
+  const DEMO_D = window.DEMO_D;
+  const cvs = document.getElementById('s6-canvas');
+  const palSel = document.getElementById('s6-pal');
+  const speedIn = document.getElementById('s6-speed');
+  const meta = document.getElementById('s6-meta');
+  const palettes = window.HyperDrive.PALETTES;
+  for (const name of Object.keys(palettes)) {
+    const o = document.createElement('option'); o.value = name; o.textContent = name;
+    palSel.appendChild(o);
+  }
+  const baked = window.HyperDrive.bakeFromD({
+    d: DEMO_D, scale: 1, padding: 24, strokeWidth: 22, half: 'first',
+  });
+  // size the canvas to baked dims, but cap visual width via CSS
+  cvs.width = baked.width; cvs.height = baked.height;
+  cvs.style.width = '100%'; cvs.style.height = 'auto';
+  const eng = new window.HyperDrive.CycleEngine(cvs, baked);
+  eng.setPalette('rainbow'); palSel.value = 'rainbow';
+  eng.setSpeed(60);
+  eng.start();
+  palSel.addEventListener('change', () => eng.setPalette(palSel.value));
+  speedIn.addEventListener('input', () => {
+    const s = +speedIn.value;
+    eng.setSpeed(s);
+    meta.textContent = `${baked.width}×${baked.height} · ${(baked.indices.byteLength/1024).toFixed(1)} KB indices · speed ${s}`;
+  });
+  meta.textContent = `${baked.width}×${baked.height} · ${(baked.indices.byteLength/1024).toFixed(1)} KB indices · speed 60`;
+})();
+// ─── Shared: a fun demo path ────────────────────────────────────────────
+const DEMO_D = window.DEMO_D || "M40,140 C 100,20 200,260 280,120 S 460,20 560,140 S 740,260 800,120";
+
+// ─── Stage 3 ────────────────────────────────────────────────────────────
+(function () {
+  const NS = 'http://www.w3.org/2000/svg';
+  const cvs = document.getElementById('s3-canvas');
+  const ctx = cvs.getContext('2d');
+  const wIn = document.getElementById('s3-w');
+  const viewSel = document.getElementById('s3-view');
+  const meta = document.getElementById('s3-meta');
+
+  const svg = document.createElementNS(NS, 'svg');
+  svg.style.cssText = 'position:absolute;left:-9999px';
+  document.body.appendChild(svg);
+  const p = document.createElementNS(NS, 'path');
+  p.setAttribute('d', DEMO_D);
+  svg.appendChild(p);
+  const totalLen = p.getTotalLength();
+
+  // pre-compute sample points along the first half (the visible "span")
+  const N_SEG = 254;
+  const SUBSEG = 4;
+  const TOTAL = N_SEG * SUBSEG;
+  const pts = new Array(TOTAL + 1);
+  for (let i = 0; i <= TOTAL; i++) {
+    const q = p.getPointAtLength((i / TOTAL) * totalLen * 0.5);
+    pts[i] = { x: q.x, y: q.y };
+  }
+
+  // off-screen index canvas (red channel = index)
+  const idx = document.createElement('canvas');
+  idx.width = cvs.width; idx.height = cvs.height;
+  const ictx = idx.getContext('2d', { willReadFrequently: true });
+
+  function bake() {
+    const STROKE_W = +wIn.value;
+    ictx.clearRect(0, 0, idx.width, idx.height);
+    ictx.lineCap = 'round'; ictx.lineJoin = 'round';
+    ictx.lineWidth = STROKE_W;
+    for (let i = 0; i < N_SEG; i++) {
+      ictx.strokeStyle = `rgb(${i + 1}, 0, 0)`;
+      ictx.beginPath();
+      const base = i * SUBSEG;
+      ictx.moveTo(pts[base].x, pts[base].y);
+      for (let j = 1; j <= SUBSEG; j++) ictx.lineTo(pts[base + j].x, pts[base + j].y);
+      ictx.stroke();
+    }
+  }
+
+  function present() {
+    const view = viewSel.value;
+    const W = cvs.width, H = cvs.height;
+    ctx.fillStyle = '#0a0a0b';
+    ctx.fillRect(0, 0, W, H);
+    if (view === 'raw') {
+      // upscale red channel into a high-contrast greyscale-ish image
+      ctx.drawImage(idx, 0, 0);
+      const im = ctx.getImageData(0, 0, W, H);
+      const d = im.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const r = d[i];
+        if (r === 0) { d[i+3] = 0; continue; }
+        // stretch 1..254 → 0..255 grey
+        const g = ((r - 1) / 253) * 255 | 0;
+        d[i] = g; d[i+1] = g; d[i+2] = g; d[i+3] = 255;
+      }
+      ctx.putImageData(im, 0, 0);
+    } else {
+      // decode the index back into a color via hue ramp
+      ctx.drawImage(idx, 0, 0);
+      const im = ctx.getImageData(0, 0, W, H);
+      const d = im.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const r = d[i];
+        if (r === 0) { d[i+3] = 0; continue; }
+        const t = (r - 1) / 253;
+        // crude HSL→RGB to avoid per-pixel hsl()
+        const h = t * 270; // 0..270
+        const s = 0.85, l = 0.5;
+        const c = (1 - Math.abs(2*l - 1)) * s;
+        const hp = h / 60;
+        const x = c * (1 - Math.abs(hp % 2 - 1));
+        let rr=0,gg=0,bb=0;
+        if (hp < 1) { rr=c; gg=x; }
+        else if (hp < 2) { rr=x; gg=c; }
+        else if (hp < 3) { gg=c; bb=x; }
+        else if (hp < 4) { gg=x; bb=c; }
+        else if (hp < 5) { rr=x; bb=c; }
+        else { rr=c; bb=x; }
+        const m = l - c/2;
+        d[i] = ((rr+m)*255)|0; d[i+1] = ((gg+m)*255)|0; d[i+2] = ((bb+m)*255)|0; d[i+3] = 255;
+      }
+      ctx.putImageData(im, 0, 0);
+    }
+    meta.textContent = `${N_SEG} segments · ${SUBSEG} sub-steps each · stroke ${wIn.value}px`;
+  }
+
+  function go() { bake(); present(); }
+  wIn.addEventListener('input', go);
+  viewSel.addEventListener('change', present);
+  go();
+})();
+
+// ─── Stage 2 ────────────────────────────────────────────────────────────
+(function () {
+  const NS = 'http://www.w3.org/2000/svg';
+  const cvs = document.getElementById('s2-canvas');
+  const ctx = cvs.getContext('2d');
+  const meta = document.getElementById('s2-meta');
+  const nIn = document.getElementById('s2-n');
+  const spanSel = document.getElementById('s2-span');
+
+  // hidden helper path
+  const svg = document.createElementNS(NS, 'svg');
+  svg.style.cssText = 'position:absolute;left:-9999px';
+  document.body.appendChild(svg);
+  const p = document.createElementNS(NS, 'path');
+  p.setAttribute('d', DEMO_D);
+  svg.appendChild(p);
+  const totalLen = p.getTotalLength();
+
+  function draw() {
+    const N = +nIn.value;
+    const span = spanSel.value;
+    const W = cvs.width, H = cvs.height;
+    ctx.clearRect(0, 0, W, H);
+
+    // dim full path
+    ctx.strokeStyle = 'rgba(21,21,26,.18)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let i = 0; i <= 800; i++) {
+      const q = p.getPointAtLength((i / 800) * totalLen);
+      if (i === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+    }
+    ctx.stroke();
+
+    // walk samples
+    let start, len;
+    if (span === 'second') { start = totalLen / 2; len = totalLen / 2; }
+    else if (span === 'full') { start = 0; len = totalLen; }
+    else { start = 0; len = totalLen / 2; }
+
+    // span overlay
+    ctx.strokeStyle = 'rgba(31,123,255,.35)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (let i = 0; i <= 200; i++) {
+      const q = p.getPointAtLength(start + (i / 200) * len);
+      if (i === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+    }
+    ctx.stroke();
+
+    // sample dots, color by t
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      const q = p.getPointAtLength(start + t * len);
+      // hue ramp like a generic palette so people get the idea
+      const hue = (t * 270) | 0;
+      ctx.fillStyle = `hsl(${hue}, 80%, 50%)`;
+      ctx.beginPath();
+      ctx.arc(q.x, q.y, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    meta.textContent = `${N} samples · path length ≈ ${totalLen.toFixed(0)}px`;
+  }
+
+  nIn.addEventListener('input', draw);
+  spanSel.addEventListener('change', draw);
+  draw();
+})();
+
+// ─── Stage 1 ────────────────────────────────────────────────────────────
+(function () {
+  const $ = id => document.getElementById(id);
+
+  function extractD(text) {
+    text = text.trim();
+    if (!text) throw new Error('Empty input.');
+    const m = text.match(/\bd\s*=\s*"([^"]+)"/);
+    if (m) return m[1];
+    if (/^[Mm]/.test(text)) return text;
+    throw new Error("No path d=… found in your input.");
+  }
+
+  $('s1-go').addEventListener('click', () => {
+    const out = $('s1-out');
+    const meta = $('s1-meta');
+    out.classList.remove('err');
+    try {
+      const d = extractD($('s1-in').value);
+      out.textContent = d;
+      meta.textContent = `→ ${d.length.toLocaleString()} chars`;
+    } catch (e) {
+      out.classList.add('err');
+      out.textContent = e.message;
+      meta.textContent = '';
+    }
+  });
+
+  $('s1-ex1').addEventListener('click', () => {
+    $('s1-in').value = `<svg viewBox="0 0 200 100">
+  <path d="M10,50 Q 50,10 90,50 T 170,50" stroke="#000" fill="none"/>
+</svg>`;
+    $('s1-go').click();
+  });
+
+  $('s1-ex2').addEventListener('click', () => {
+    $('s1-in').value = `M10,50 Q 50,10 90,50 T 170,50`;
+    $('s1-go').click();
+  });
+})();
+
+// ─── Stage 7: Custom palettes ──────────────────────────────────────────
+(function () {
+  const cvs = document.getElementById('s7-canvas');
+  const ctx = cvs.getContext('2d');
+  const meta = document.getElementById('s7-meta');
+  const W = cvs.width, H = cvs.height;
+  const barH = 56;
+  const handleY = barH + 12;
+
+  let stops = [
+    { t: 0.00, color: [255, 100,  50] },
+    { t: 0.30, color: [255, 220, 100] },
+    { t: 0.60, color: [ 80,  90, 220] },
+    { t: 1.00, color: [ 10,  10,  30] },
+  ];
+  let dragIdx = -1;
+
+  function buildRamp(s) {
+    const sorted = s.slice().sort((a, b) => a.t - b.t);
+    const out = new Array(255);
+    for (let i = 0; i < 255; i++) {
+      const t = i / 254;
+      let a = sorted[0], b = sorted[sorted.length - 1];
+      for (let k = 0; k < sorted.length - 1; k++) {
+        if (t >= sorted[k].t && t <= sorted[k + 1].t) {
+          a = sorted[k]; b = sorted[k + 1]; break;
+        }
+      }
+      const u = (t - a.t) / (b.t - a.t || 1);
+      out[i] = [
+        Math.round(a.color[0] + (b.color[0] - a.color[0]) * u),
+        Math.round(a.color[1] + (b.color[1] - a.color[1]) * u),
+        Math.round(a.color[2] + (b.color[2] - a.color[2]) * u),
+      ];
+    }
+    return out;
+  }
+
+  function draw() {
+    ctx.fillStyle = '#0a0a0b';
+    ctx.fillRect(0, 0, W, H);
+    const ramp = buildRamp(stops);
+    for (let x = 0; x < W; x++) {
+      const t = x / (W - 1);
+      const idx = Math.min(254, Math.round(t * 254));
+      const [r, g, b] = ramp[idx];
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fillRect(x, 0, 1, barH);
+    }
+    for (let i = 0; i < stops.length; i++) {
+      const s = stops[i];
+      const x = s.t * W;
+      ctx.fillStyle = `rgb(${s.color[0]},${s.color[1]},${s.color[2]})`;
+      ctx.strokeStyle = i === dragIdx ? '#1f7bff' : '#fff';
+      ctx.lineWidth = i === dragIdx ? 2 : 1;
+      ctx.beginPath();
+      ctx.arc(x, handleY, 7, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+    }
+    meta.textContent = `${stops.length} stops · 255-entry ramp`;
+  }
+
+  function localXY(e) {
+    const r = cvs.getBoundingClientRect();
+    return {
+      x: (e.clientX - r.left) * (W / r.width),
+      y: (e.clientY - r.top)  * (H / r.height),
+    };
+  }
+  function hitTest(x, y) {
+    let best = -1, bestD = 16;
+    for (let i = 0; i < stops.length; i++) {
+      const hx = stops[i].t * W;
+      const d = Math.hypot(hx - x, handleY - y);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return best;
+  }
+
+  cvs.addEventListener('pointerdown', (e) => {
+    const { x, y } = localXY(e);
+    const i = hitTest(x, y);
+    if (i >= 0) { dragIdx = i; e.preventDefault(); draw(); }
+  });
+  window.addEventListener('pointermove', (e) => {
+    if (dragIdx < 0) return;
+    const { x } = localXY(e);
+    stops[dragIdx].t = Math.max(0, Math.min(1, x / W));
+    draw();
+  });
+  window.addEventListener('pointerup', () => {
+    if (dragIdx < 0) return;
+    dragIdx = -1; draw();
+  });
+
+  draw();
+})();
+
+// ─── Stage 8: Smooth palette transitions ───────────────────────────────
+(function () {
+  const stripCvs = document.getElementById('s8-strip');
+  const stripCtx = stripCvs.getContext('2d');
+  const slider = document.getElementById('s8-delta');
+  const meta = document.getElementById('s8-meta');
+  const liveCvs = document.getElementById('s8-live');
+  const trigger = document.getElementById('s8-trigger');
+  const liveMeta = document.getElementById('s8-live-meta');
+
+  // Two contrasting palettes for the demo.
+  const stopsA = [
+    { t: 0,   color: [255,  60,  60] },
+    { t: 0.5, color: [255, 180,  40] },
+    { t: 1,   color: [255, 240, 120] },
+  ];
+  const stopsB = [
+    { t: 0,   color: [ 30,  60, 200] },
+    { t: 0.5, color: [ 60, 200, 200] },
+    { t: 1,   color: [180, 250, 220] },
+  ];
+  const pA = window.PshiftPng.buildRamp(stopsA);
+  const pB = window.PshiftPng.buildRamp(stopsB);
+
+  function drawStrip(delta) {
+    const W = stripCvs.width, H = stripCvs.height;
+    stripCtx.fillStyle = '#0a0a0b';
+    stripCtx.fillRect(0, 0, W, H);
+    // 255 cells, each = palette[i+1] at this delta. Behind the boundary
+    // (i > delta) the cell reads from pA; past it (i ≤ delta) from pB.
+    for (let i = 0; i < 255; i++) {
+      let r, g, b;
+      if (i <= delta && delta > 0) {
+        const p = (delta - i + 255) % 255;
+        [r, g, b] = pB[p];
+      } else {
+        const p = ((255 - i) % 255 + 255) % 255;
+        [r, g, b] = pA[p];
+      }
+      stripCtx.fillStyle = `rgb(${r},${g},${b})`;
+      const x = (i / 255) * W;
+      stripCtx.fillRect(x, 0, W / 255 + 1, H);
+    }
+    meta.textContent = delta === 0 ? '0/254 — fully p1'
+      : delta >= 254 ? '254/254 — fully p2'
+      : `${delta}/254 — boundary at index ${delta + 1}`;
+  }
+
+  slider.addEventListener('input', () => drawStrip(+slider.value));
+  drawStrip(0);
+
+  // Live engine demo — bake the demo path, run cycling, trigger transitions.
+  const baked = window.HyperDrive.bakeFromD({
+    d: window.DEMO_D, scale: 1, padding: 24, strokeWidth: 22, half: 'first',
+  });
+  liveCvs.width = baked.width; liveCvs.height = baked.height;
+  liveCvs.style.width = '100%'; liveCvs.style.height = 'auto';
+  const eng = new window.HyperDrive.CycleEngine(liveCvs, baked);
+  eng.setPalette(pA);
+  eng.setSpeed(60);
+  eng.start();
+  let onA = true;
+  function refreshTrigger() {
+    trigger.textContent = onA ? 'Trigger transition to p2 →'
+                              : 'Trigger transition to p1 →';
+    liveMeta.textContent = `currently feeding p${onA ? '1 (warm)' : '2 (cool)'}`;
+  }
+  trigger.addEventListener('click', () => {
+    onA = !onA;
+    eng.transitionTo(onA ? pA : pB);
+    refreshTrigger();
+  });
+  refreshTrigger();
+})();
+
+// ─── Stage 9: Self-describing PNG ──────────────────────────────────────
+(function () {
+  const btn = document.getElementById('s9-fetch');
+  const out = document.getElementById('s9-out');
+  const meta = document.getElementById('s9-meta');
+
+  btn.addEventListener('click', async () => {
+    out.classList.remove('err');
+    out.textContent = 'fetching…';
+    meta.textContent = '';
+    try {
+      const buf = await fetch('logo.pshift.png').then((r) => {
+        if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+        return r.arrayBuffer();
+      });
+      const bytes = new Uint8Array(buf);
+      const decoded = window.PshiftPng.decode(bytes);
+      const m = decoded.metadata;
+      const summary = {
+        version: m.version,
+        size: `${decoded.width} × ${decoded.height}`,
+        indices_bytes: decoded.indices.length,
+        anchors: m.anchors.length,
+        palettes: m.palettes.map((p) => ({
+          name: p.name, stops: p.stops.length, speed: p.speed, cycles: p.cycles,
+        })),
+        playMode: m.playMode,
+        activeIdx: m.activeIdx,
+      };
+      out.textContent = JSON.stringify(summary, null, 2);
+      meta.textContent = `${(bytes.length / 1024).toFixed(1)} KB on disk`;
+    } catch (e) {
+      out.classList.add('err');
+      out.textContent = `Could not parse: ${e.message}. Drop a logo.pshift.png next to this file (export one from svg-to-ps.html).`;
+    }
+  });
+})();
+</script>
+
+</body>
+</html>
