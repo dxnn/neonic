@@ -278,6 +278,8 @@ palette[<span class="n">0</span>] = <span class="n">0</span>; <span class="c">//
   </ol>
   <p>That's it. No SVG, no <code>drawPath</code>, no compositing. The geometry was baked once. Animation is just "shift a 1KB lookup, then do one tight pass over a typed array." A 1500×600 logo runs at 60fps with cycles to spare.</p>
 
+  <p>The technique itself isn't new — palette cycling carried entire eras of 8-bit and 16-bit graphics, and Mark Ferrari's <em>Living Worlds</em> pieces (the rain-on-a-village, the lava flow) are the canonical demonstration of how much motion you can get out of one static image and a rotating LUT. We're just running it over a freshly baked SVG path instead of a hand-drawn 320×200 scene.</p>
+
   <div class="demo">
     <div class="label">Live</div>
     <div class="row" style="margin-top:0">
@@ -434,6 +436,8 @@ IEND           <span style="color:var(--muted)">— end of stream</span></pre>
 <span class="s">&lt;script&gt;</span>PshiftLoader.mountAll(<span class="s">'.logo-cycle'</span>);<span class="s">&lt;/script&gt;</span></pre>
 
   <p>The loader pulls the PNG, decodes the indices straight out of the iTXt chunk (no rebake), pipes the palette stops through <code>buildRamp</code>, and runs the playlist scheduler from Stage 08 if there's more than one palette. The static preview the file ships with is rendered from palette[0] at <code>offset = 0</code> — so what you see in Finder matches the first frame the engine paints.</p>
+
+  <p class="note">The drawing tool feeds raw pointer events through Steve Ruiz's <a href="https://github.com/steveruizok/perfect-freehand" style="color:var(--ink)">perfect-freehand</a> for the visible stroke rendering, simplifies the trail with Ramer–Douglas–Peucker, and converts each polyline run into cubic Béziers via Catmull–Rom — small classics, all of them. Everything else above is hand-rolled against bare Canvas and SVG APIs.</p>
 
   <p style="margin-top:32px">Now go run it on something:</p>
   <p>
