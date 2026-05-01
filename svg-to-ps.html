@@ -147,6 +147,8 @@
         <input id="speed" type="range" min="-200" max="200" value="60" />
         <span id="speed-val">+60</span>
       </label>
+      <button class="ghost" id="export">Export</button>
+      <button class="ghost" id="record">Record</button>
       <span class="meta" id="bake-meta"></span>
     </div>
   </section>
@@ -156,6 +158,8 @@
     <h2>Refine anchors &amp; tangents.</h2>
     <canvas id="bezier"></canvas>
     <div class="row">
+      <button class="ghost" id="undo">Undo</button>
+      <button class="ghost" id="smooth">Smooth</button>
       <span class="meta" id="bez-meta"></span>
     </div>
   </section>
@@ -211,6 +215,7 @@ let renderRaf = 0;
 let bakeTimer = 0;
 let engine = null;
 let dpr = window.devicePixelRatio || 1;
+const history = [];
 
 // ─── DOM refs ────────────────────────────────────────────────────────────
 const drawCvs    = $('draw');
@@ -445,6 +450,7 @@ function scheduleRender() {
 // ─── Pointer routing ─────────────────────────────────────────────────────
 drawCvs.addEventListener('pointerdown', (e) => {
   e.preventDefault();
+  pushHistory();
   state.paths = [];
   rawLiveStroke = [eventToCanvasPoint(e, drawCvs)];
   activeDrag = { kind: 'draw' };
@@ -455,7 +461,10 @@ bezCvs.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   const r = bezCvs.getBoundingClientRect();
   const hit = bezierHitTest(e.clientX - r.left, e.clientY - r.top);
-  if (hit) activeDrag = { kind: 'bezier', ...hit };
+  if (hit) {
+    pushHistory();
+    activeDrag = { kind: 'bezier', ...hit };
+  }
 });
 
 rampCvs.addEventListener('pointerdown', (e) => {
@@ -742,12 +751,100 @@ function updateSpeedLabel() {
 
 // ─── Wire-up ─────────────────────────────────────────────────────────────
 $('clear').addEventListener('click', () => {
+  pushHistory();
   state.paths = [];
   rawLiveStroke = null;
   if (engine) { engine.stop(); engine = null; }
   outCvs.width = 1; outCvs.height = 1;
   bakeMeta.textContent = '';
   scheduleRender();
+});
+
+function pushHistory() {
+  history.push(JSON.stringify(state.paths));
+  if (history.length > 50) history.shift();
+  $('undo').disabled = history.length === 0;
+}
+function undo() {
+  if (activeDrag || history.length === 0) return;
+  state.paths = JSON.parse(history.pop());
+  $('undo').disabled = history.length === 0;
+  scheduleRender();
+  scheduleBake();
+}
+$('undo').addEventListener('click', undo);
+window.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+    e.preventDefault();
+    undo();
+  }
+});
+
+$('smooth').addEventListener('click', () => {
+  if (state.paths.length === 0) return;
+  pushHistory();
+  const polyline = samplePath(state.paths[0], 8);
+  const path = polylineToBezier(rdpSimplify(polyline, 2.5));
+  if (path) state.paths = [path];
+  scheduleRender();
+  scheduleBake();
+});
+
+$('export').addEventListener('click', () => {
+  if (state.paths.length === 0) return;
+  const path = state.paths[0];
+  const data = {
+    version: 1,
+    d: pathToD(path),
+    anchors: path.anchors,
+    strokeWidth: +strokeWIn.value,
+    scale: 1.6,
+    padding: 24,
+    half: 'full',
+    stops,
+    speed: +speedIn.value,
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'palette-cycle.json';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+$('record').addEventListener('click', async (e) => {
+  if (!engine) return;
+  const btn = e.currentTarget;
+  const speed = Math.abs(engine.speed);
+  btn.disabled = true;
+  try {
+    if (speed < 0.5) {
+      const a = document.createElement('a');
+      a.href = outCvs.toDataURL('image/png');
+      a.download = 'palette-cycle.png';
+      a.click();
+      return;
+    }
+    const dur = Math.min(255 / speed, 10);
+    btn.textContent = 'Recording…';
+    const stream = outCvs.captureStream(60);
+    const rec = new MediaRecorder(stream, { mimeType: 'video/webm' });
+    const chunks = [];
+    rec.ondataavailable = (ev) => ev.data.size && chunks.push(ev.data);
+    rec.start();
+    await new Promise((r) => setTimeout(r, dur * 1000));
+    await new Promise((r) => { rec.onstop = r; rec.stop(); });
+    const url = URL.createObjectURL(new Blob(chunks, { type: 'video/webm' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'palette-cycle.webm';
+    a.click();
+    URL.revokeObjectURL(url);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Record';
+  }
 });
 
 strokeWIn.addEventListener('input', () => {
@@ -809,6 +906,7 @@ window.addEventListener('resize', () => {
 });
 
 // ─── Init ────────────────────────────────────────────────────────────────
+$('undo').disabled = true;
 seedFromPreset('rainbow');
 updateSpeedLabel();
 scheduleRender();
