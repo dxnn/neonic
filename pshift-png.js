@@ -134,9 +134,11 @@
 
   // ─── public encode / decode ───────────────────────────────────────────
   // encode(opts) → Promise<Uint8Array>
-  // opts: { canvas, indices, anchors, stops, strokeWidth, scale, padding, half, speed }
+  // opts: { canvas, indices, anchors, palettes, activeIdx, playMode,
+  //         strokeWidth, scale, padding, half }
   async function encode(opts) {
-    const { canvas, indices, anchors, stops, strokeWidth, scale, padding, half, speed } = opts;
+    const { canvas, indices, anchors, palettes, activeIdx, playMode,
+            strokeWidth, scale, padding, half } = opts;
     const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
     if (!blob) throw new Error('canvas.toBlob returned null');
     const pngBytes = new Uint8Array(await blob.arrayBuffer());
@@ -146,9 +148,10 @@
       height: canvas.height,
       indices: bytesToBase64(indices),
       anchors,
-      stops,
+      palettes,
+      activeIdx,
+      playMode,
       strokeWidth, scale, padding, half,
-      speed,
     };
     return injectIText(pngBytes, 'pshift', JSON.stringify(meta));
   }

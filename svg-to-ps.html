@@ -104,6 +104,37 @@
     font: 13px ui-sans-serif, system-ui, sans-serif; color: var(--muted); }
   footer a { color: var(--ink); }
 
+  /* ─── Playlist ───────────────────────────────────────────────── */
+  .playlist { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+  .playlist-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 8px; background: #fafaf6;
+    border: .5px solid var(--rule); border-radius: 6px;
+    font: 12px ui-sans-serif, system-ui, sans-serif;
+    cursor: default;
+  }
+  .playlist-item.active { border-color: var(--accent); background: #eef4ff; }
+  .playlist-item.dragging { opacity: .35; }
+  .playlist-item.drag-over { border-color: var(--accent); border-style: dashed; }
+  .playlist-item .grip {
+    cursor: grab; color: var(--muted);
+    user-select: none; font-family: ui-monospace, monospace; font-size: 14px;
+  }
+  .playlist-item .name {
+    flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .playlist-item canvas {
+    width: 140px; height: 18px; border-radius: 3px; flex-shrink: 0;
+  }
+  .playlist-item .delete {
+    background: transparent; border: 0; padding: 2px 6px;
+    color: var(--muted); font-size: 14px; line-height: 1;
+  }
+  .playlist-item .delete:hover { color: var(--ink); }
+  .mode-row { font-size: 11px; color: var(--muted); }
+  .mode-row label { display: inline-flex; align-items: center; gap: 4px; }
+
   @media (max-width: 800px) {
     .grid {
       grid-template-columns: 1fr;
@@ -144,10 +175,6 @@
     <h2>Live preview.</h2>
     <div class="out-host"><canvas id="out"></canvas></div>
     <div class="row">
-      <label>Speed
-        <input id="speed" type="range" min="-200" max="200" value="-60" />
-        <span id="speed-val">-60</span>
-      </label>
       <button class="ghost" id="export">Export</button>
       <select id="exportSize" title="Export bake size">
         <option value="1">full</option>
@@ -193,6 +220,25 @@
       <button id="addStop">+ add stop</button>
       <button class="ghost" id="removeStop">&times; remove</button>
     </div>
+    <div class="row">
+      <label>Speed
+        <input id="speed" type="range" min="-200" max="200" value="-60" />
+        <span id="speed-val">-60</span>
+      </label>
+    </div>
+    <div class="row" style="margin-top: 14px">
+      <label>Name
+        <input type="text" id="palName" placeholder="palette name" style="width: 12em" />
+      </label>
+      <button id="addToPlaylist">+ Add to playlist</button>
+    </div>
+    <div id="playlist" class="playlist"></div>
+    <div id="modeRow" class="row mode-row" hidden>
+      <span>Mode</span>
+      <label><input type="radio" name="mode" value="sequential" checked /> Sequential</label>
+      <label><input type="radio" name="mode" value="random" /> Random</label>
+      <label><input type="radio" name="mode" value="surprise" /> Surprise me</label>
+    </div>
   </section>
 
 </div>
@@ -228,6 +274,15 @@ let engine = null;
 let dpr = window.devicePixelRatio || 1;
 const undoHistory = [];
 const redoHistory = [];
+
+// Playlist
+const playlist = [];      // [{ name, stops, speed, cycles }]
+let activeIdx = 0;
+let playMode = 'sequential';
+let cyclesAccumulator = 0;
+let lastEngineOffset = 0;
+let targetCycles = 1;
+let cycleRaf = 0;
 
 // ─── DOM refs ────────────────────────────────────────────────────────────
 const drawCvs    = $('draw');
@@ -643,9 +698,14 @@ function seedFromPreset(name) {
     }
   }
   newStops.push({ t: 1, color: ramp[N-1].slice() });
-  stops = newStops;
+  setStops(newStops);
   selectedStop = 0;
   rebuildRamp();
+}
+
+function setStops(newStops) {
+  stops = newStops;
+  if (activeIdx >= 0 && playlist[activeIdx]) playlist[activeIdx].stops = stops;
 }
 
 function rebuildRamp() {
@@ -653,7 +713,219 @@ function rebuildRamp() {
   drawRampCanvas();
   if (engine) engine.setPalette(currentRamp);
   updateStopUI();
+  updateActivePlaylistRamp();
   rampMeta.textContent = `${stops.length} stops`;
+}
+
+// ─── Playlist ────────────────────────────────────────────────────────────
+function setActiveIdx(idx) {
+  if (idx < 0 || idx >= playlist.length) return;
+  activeIdx = idx;
+  const entry = playlist[idx];
+  stops = entry.stops;
+  selectedStop = Math.min(Math.max(0, selectedStop), stops.length - 1);
+  speedIn.value = entry.speed;
+  updateSpeedLabel();
+  if (engine) {
+    engine.setSpeed(speedMagnitude());
+    engine.setReverse(speedReverse());
+  }
+  cyclesAccumulator = 0;
+  lastEngineOffset = engine ? engine.offset : 0;
+  targetCycles = entry.cycles || 1;
+  rebuildRamp();
+  renderPlaylist();
+}
+
+function addToPlaylist() {
+  const name = ($('palName').value || `palette ${playlist.length + 1}`).trim();
+  const copy = stops.map(s => ({ t: s.t, color: s.color.slice() }));
+  playlist.push({
+    name,
+    stops: copy,
+    speed: +speedIn.value,
+    cycles: 1,
+  });
+  $('palName').value = '';
+  setActiveIdx(playlist.length - 1);
+}
+
+function removePlaylistItem(idx) {
+  if (idx < 0 || idx >= playlist.length) return;
+  if (playlist.length <= 1) return; // never empty
+  const wasActive = idx === activeIdx;
+  playlist.splice(idx, 1);
+  if (wasActive) {
+    setActiveIdx(Math.min(idx, playlist.length - 1));
+  } else {
+    if (idx < activeIdx) activeIdx--;
+    renderPlaylist();
+  }
+}
+
+function reorderPlaylist(from, to) {
+  if (from === to || from < 0 || to < 0) return;
+  if (from >= playlist.length || to >= playlist.length) return;
+  const moved = playlist.splice(from, 1)[0];
+  playlist.splice(to, 0, moved);
+  if (activeIdx === from) activeIdx = to;
+  else if (from < activeIdx && activeIdx <= to) activeIdx--;
+  else if (to <= activeIdx && activeIdx < from) activeIdx++;
+  renderPlaylist();
+}
+
+function drawMiniRamp(canvas, palStops) {
+  canvas.width = 280;  // 2× CSS for crispness
+  canvas.height = 36;
+  const ctx = canvas.getContext('2d');
+  const ramp = window.PshiftPng.buildRamp(palStops);
+  for (let x = 0; x < canvas.width; x++) {
+    const t = x / (canvas.width - 1);
+    const idx = Math.min(254, Math.round(t * 254));
+    const [r, g, b] = ramp[idx];
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.fillRect(x, 0, 1, canvas.height);
+  }
+}
+
+function updateActivePlaylistRamp() {
+  const root = $('playlist');
+  if (!root) return;
+  for (const item of root.children) {
+    if (+item.dataset.idx === activeIdx) {
+      const cvs = item.querySelector('canvas');
+      if (cvs) drawMiniRamp(cvs, stops);
+      break;
+    }
+  }
+}
+
+function renderPlaylist() {
+  const root = $('playlist');
+  root.innerHTML = '';
+  $('modeRow').hidden = playlist.length < 2;
+  if (playlist.length < 2) return;
+
+  for (let i = 0; i < playlist.length; i++) {
+    const entry = playlist[i];
+    const item = document.createElement('div');
+    item.className = 'playlist-item' + (i === activeIdx ? ' active' : '');
+    item.draggable = true;
+    item.dataset.idx = String(i);
+
+    const grip = document.createElement('span');
+    grip.className = 'grip';
+    grip.textContent = '☰';  // ☰
+    item.appendChild(grip);
+
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = entry.name || `palette ${i + 1}`;
+    item.appendChild(name);
+
+    const cvs = document.createElement('canvas');
+    drawMiniRamp(cvs, entry.stops);
+    item.appendChild(cvs);
+
+    const cycles = document.createElement('input');
+    cycles.type = 'number';
+    cycles.min = '1';
+    cycles.max = '99';
+    cycles.value = entry.cycles;
+    cycles.className = 'cycles';
+    cycles.title = 'cycles before next';
+    cycles.style.cssText = 'width: 3em; padding: 2px 4px; font: 11px ui-sans-serif, system-ui, sans-serif;';
+    cycles.addEventListener('change', () => {
+      const v = Math.max(1, Math.min(99, +cycles.value || 1));
+      cycles.value = v;
+      entry.cycles = v;
+      if (i === activeIdx) targetCycles = v;
+    });
+    cycles.addEventListener('click', (e) => e.stopPropagation());
+    item.appendChild(cycles);
+
+    const del = document.createElement('button');
+    del.className = 'delete';
+    del.textContent = '×';
+    del.title = 'remove';
+    del.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removePlaylistItem(i);
+    });
+    item.appendChild(del);
+
+    item.addEventListener('click', () => setActiveIdx(i));
+
+    item.addEventListener('dragstart', (e) => {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(i));
+      item.classList.add('dragging');
+    });
+    item.addEventListener('dragend', () => item.classList.remove('dragging'));
+    item.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      item.classList.add('drag-over');
+    });
+    item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
+    item.addEventListener('drop', (e) => {
+      e.preventDefault();
+      item.classList.remove('drag-over');
+      const from = +e.dataTransfer.getData('text/plain');
+      reorderPlaylist(from, i);
+    });
+
+    root.appendChild(item);
+  }
+}
+
+function advancePlaylist() {
+  if (playlist.length < 2) return;
+  let next;
+  if (playMode === 'sequential') {
+    next = (activeIdx + 1) % playlist.length;
+  } else {
+    do { next = Math.floor(Math.random() * playlist.length); }
+    while (next === activeIdx && playlist.length > 1);
+  }
+  activeIdx = next;
+  const entry = playlist[next];
+  stops = entry.stops;
+  selectedStop = Math.min(Math.max(0, selectedStop), stops.length - 1);
+  speedIn.value = entry.speed;
+  updateSpeedLabel();
+  if (engine) {
+    engine.setSpeed(speedMagnitude());
+    engine.setReverse(speedReverse());
+    engine.setPalette(window.PshiftPng.buildRamp(entry.stops));
+  }
+  cyclesAccumulator = 0;
+  lastEngineOffset = engine ? engine.offset : 0;
+  targetCycles = playMode === 'surprise'
+    ? 1 + Math.floor(Math.random() * 4)
+    : (entry.cycles || 1);
+  currentRamp = window.PshiftPng.buildRamp(entry.stops);
+  drawRampCanvas();
+  updateStopUI();
+  renderPlaylist();
+}
+
+function startCycleWatcher() {
+  if (cycleRaf) cancelAnimationFrame(cycleRaf);
+  cyclesAccumulator = 0;
+  lastEngineOffset = engine ? engine.offset : 0;
+  function tick() {
+    if (engine && engine.running && playlist.length >= 2) {
+      cyclesAccumulator += Math.abs(engine.offset - lastEngineOffset) / 255;
+      lastEngineOffset = engine.offset;
+      if (cyclesAccumulator >= targetCycles) {
+        advancePlaylist();
+      }
+    } else if (engine) {
+      lastEngineOffset = engine.offset;
+    }
+    cycleRaf = requestAnimationFrame(tick);
+  }
+  cycleRaf = requestAnimationFrame(tick);
 }
 
 function drawRampCanvas() {
@@ -821,6 +1093,10 @@ $('import').addEventListener('click', () => {
       alert('PNG is missing an anchors array.');
       return;
     }
+    if (!Array.isArray(meta.palettes) || meta.palettes.length === 0) {
+      alert('PNG is missing a palettes array.');
+      return;
+    }
     pushHistory();
     state.paths = [{ anchors: meta.anchors }];
     rawPath = meta.anchors.map(a => ({ x: a.x, y: a.y, pressure: 0.5 }));
@@ -829,15 +1105,23 @@ $('import').addEventListener('click', () => {
       strokeWIn.value = meta.strokeWidth;
       strokeWVal.textContent = meta.strokeWidth;
     }
-    if (Array.isArray(meta.stops) && meta.stops.length >= 2) {
-      stops = meta.stops.map(s => ({ t: s.t, color: s.color.slice() }));
-      selectedStop = 0;
-      rebuildRamp();
+    playlist.length = 0;
+    for (const p of meta.palettes) {
+      playlist.push({
+        name: p.name || '',
+        stops: p.stops.map(s => ({ t: s.t, color: s.color.slice() })),
+        speed: p.speed != null ? p.speed : -60,
+        cycles: p.cycles != null ? p.cycles : 1,
+      });
     }
-    if (meta.speed != null) {
-      speedIn.value = meta.speed;
-      updateSpeedLabel();
-    }
+    selectedStop = 0;
+    const idx = (typeof meta.activeIdx === 'number'
+                 && meta.activeIdx >= 0
+                 && meta.activeIdx < playlist.length) ? meta.activeIdx : 0;
+    setActiveIdx(idx);
+    playMode = meta.playMode || 'sequential';
+    const r = document.querySelector(`input[name="mode"][value="${playMode}"]`);
+    if (r) r.checked = true;
     scheduleRender();
     scheduleBake();
   };
@@ -876,12 +1160,13 @@ $('export').addEventListener('click', async (e) => {
       canvas: off,
       indices: bake.indices,
       anchors: state.paths[0].anchors,
-      stops,
+      palettes: playlist,
+      activeIdx,
+      playMode,
       strokeWidth: +strokeWIn.value,
       scale: exportScale,
       padding: 24,
       half: 'full',
-      speed: +speedIn.value,
     });
     const url = URL.createObjectURL(new Blob([bytes], { type: 'image/png' }));
     const a = document.createElement('a');
@@ -936,6 +1221,7 @@ strokeWIn.addEventListener('input', () => {
 });
 speedIn.addEventListener('input', () => {
   updateSpeedLabel();
+  if (activeIdx >= 0 && playlist[activeIdx]) playlist[activeIdx].speed = +speedIn.value;
   if (engine) {
     engine.setSpeed(speedMagnitude());
     engine.setReverse(speedReverse());
@@ -981,6 +1267,19 @@ seedSel.value = 'rainbow';
 seedSel.addEventListener('change', () => seedFromPreset(seedSel.value));
 $('reset').addEventListener('click', () => seedFromPreset(seedSel.value));
 
+$('addToPlaylist').addEventListener('click', addToPlaylist);
+$('palName').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); addToPlaylist(); }
+});
+document.querySelectorAll('input[name="mode"]').forEach((r) => {
+  r.addEventListener('change', (e) => {
+    if (!e.target.checked) return;
+    playMode = e.target.value;
+    cyclesAccumulator = 0;
+    if (engine) lastEngineOffset = engine.offset;
+  });
+});
+
 window.addEventListener('resize', () => {
   dpr = window.devicePixelRatio || 1;
   drawRampCanvas();
@@ -988,9 +1287,14 @@ window.addEventListener('resize', () => {
 });
 
 // ─── Init ────────────────────────────────────────────────────────────────
+playlist.push({ name: 'palette 1', stops: [], speed: -60, cycles: 1 });
+activeIdx = 0;
+stops = playlist[0].stops;
 refreshHistoryButtons();
 seedFromPreset('rainbow');
 updateSpeedLabel();
+renderPlaylist();
+startCycleWatcher();
 scheduleRender();
 </script>
 </body>

@@ -101,10 +101,49 @@ async function mountLogo(canvas) {
   });
   const { width, height, indices, metadata } = window.PshiftPng.decode(new Uint8Array(buf));
   const eng = new window.HyperDrive.CycleEngine(canvas, { width, height, indices });
-  eng.setPalette(window.PshiftPng.buildRamp(metadata.stops));
-  eng.setSpeed(Math.abs(metadata.speed));
-  eng.setReverse(metadata.speed < 0);
+
+  const palettes = metadata.palettes;
+  let curIdx = (typeof metadata.activeIdx === 'number'
+                && metadata.activeIdx >= 0
+                && metadata.activeIdx < palettes.length) ? metadata.activeIdx : 0;
+  const mode = metadata.playMode || 'sequential';
+
+  function applyPalette(idx) {
+    const p = palettes[idx];
+    eng.setPalette(window.PshiftPng.buildRamp(p.stops));
+    eng.setSpeed(Math.abs(p.speed));
+    eng.setReverse(p.speed < 0);
+  }
+  applyPalette(curIdx);
   eng.start();
+
+  if (palettes.length >= 2) {
+    let target = palettes[curIdx].cycles || 1;
+    let acc = 0;
+    let lastOff = eng.offset;
+    function tick() {
+      if (eng.running) {
+        acc += Math.abs(eng.offset - lastOff) / 255;
+        lastOff = eng.offset;
+        if (acc >= target) {
+          acc = 0;
+          let next;
+          if (mode === 'sequential') next = (curIdx + 1) % palettes.length;
+          else { do { next = Math.floor(Math.random() * palettes.length); }
+                 while (next === curIdx); }
+          curIdx = next;
+          applyPalette(next);
+          target = mode === 'surprise' ? 1 + Math.floor(Math.random() * 4)
+                                       : (palettes[next].cycles || 1);
+          lastOff = eng.offset;
+        }
+      } else {
+        lastOff = eng.offset;
+      }
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
 }
 
 (async () => {
