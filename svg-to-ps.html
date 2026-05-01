@@ -149,6 +149,12 @@
         <span id="speed-val">-60</span>
       </label>
       <button class="ghost" id="export">Export</button>
+      <select id="exportSize" title="Export bake size">
+        <option value="1">full</option>
+        <option value="0.5">half</option>
+        <option value="0.25">quarter</option>
+        <option value="0.125">eighth</option>
+      </select>
       <button class="ghost" id="record">Record</button>
       <span class="meta" id="bake-meta"></span>
     </div>
@@ -839,17 +845,40 @@ $('import').addEventListener('click', () => {
 });
 
 $('export').addEventListener('click', async (e) => {
-  if (state.paths.length === 0 || !engine) return;
+  if (state.paths.length === 0) return;
   const btn = e.currentTarget;
   btn.disabled = true;
+  const origLabel = btn.textContent;
+  btn.textContent = 'Rendering…';
   try {
+    const sizeMul = +$('exportSize').value || 1;
+    const exportScale = 1.6 * sizeMul;
+    const bake = window.HyperDrive.bakeFromD({
+      d: pathToD(state.paths[0]),
+      scale: exportScale,
+      padding: 24,
+      strokeWidth: +strokeWIn.value,
+      half: 'full',
+    });
+    const off = document.createElement('canvas');
+    off.width = bake.width; off.height = bake.height;
+    const offCtx = off.getContext('2d');
+    const im = offCtx.createImageData(bake.width, bake.height);
+    const data32 = new Uint32Array(im.data.buffer);
+    const pal32 = new Uint32Array(256);
+    for (let i = 0; i < 255; i++) {
+      const [r, g, b] = currentRamp[i];
+      pal32[i + 1] = (255 << 24) | (b << 16) | (g << 8) | r;
+    }
+    for (let i = 0; i < bake.indices.length; i++) data32[i] = pal32[bake.indices[i]];
+    offCtx.putImageData(im, 0, 0);
     const bytes = await window.PshiftPng.encode({
-      canvas: outCvs,
-      indices: engine.baked.indices,
+      canvas: off,
+      indices: bake.indices,
       anchors: state.paths[0].anchors,
       stops,
       strokeWidth: +strokeWIn.value,
-      scale: 1.6,
+      scale: exportScale,
       padding: 24,
       half: 'full',
       speed: +speedIn.value,
@@ -862,6 +891,7 @@ $('export').addEventListener('click', async (e) => {
     URL.revokeObjectURL(url);
   } finally {
     btn.disabled = false;
+    btn.textContent = origLabel;
   }
 });
 
