@@ -131,9 +131,10 @@
     <canvas id="draw"></canvas>
     <div class="row">
       <button class="ghost" id="clear">Clear</button>
+      <button class="ghost" id="import">Import</button>
       <label>Stroke
-        <input id="strokeW" type="range" min="6" max="64" value="22" />
-        <span id="strokeW-val">22</span>
+        <input id="strokeW" type="range" min="6" max="64" value="11" />
+        <span id="strokeW-val">11</span>
       </label>
     </div>
   </section>
@@ -144,11 +145,10 @@
     <div class="out-host"><canvas id="out"></canvas></div>
     <div class="row">
       <label>Speed
-        <input id="speed" type="range" min="-200" max="200" value="60" />
-        <span id="speed-val">+60</span>
+        <input id="speed" type="range" min="-200" max="200" value="-60" />
+        <span id="speed-val">-60</span>
       </label>
       <button class="ghost" id="export">Export</button>
-      <button class="ghost" id="import">Import</button>
       <button class="ghost" id="record">Record</button>
       <span class="meta" id="bake-meta"></span>
     </div>
@@ -160,6 +160,7 @@
     <canvas id="bezier"></canvas>
     <div class="row">
       <button class="ghost" id="undo">Undo</button>
+      <button class="ghost" id="redo">Redo</button>
       <button class="ghost" id="smooth">Smooth</button>
       <span class="meta" id="bez-meta"></span>
     </div>
@@ -218,7 +219,8 @@ let renderRaf = 0;
 let bakeTimer = 0;
 let engine = null;
 let dpr = window.devicePixelRatio || 1;
-const history = [];
+const undoHistory = [];
+const redoHistory = [];
 
 // ─── DOM refs ────────────────────────────────────────────────────────────
 const drawCvs    = $('draw');
@@ -766,27 +768,45 @@ $('clear').addEventListener('click', () => {
   scheduleRender();
 });
 
-function pushHistory() {
-  history.push(JSON.stringify({ p: state.paths, r: rawPath, s: smoothLevel }));
-  if (history.length > 50) history.shift();
-  $('undo').disabled = history.length === 0;
+function snapshot() {
+  return JSON.stringify({ p: state.paths, r: rawPath, s: smoothLevel });
 }
-function undo() {
-  if (activeDrag || history.length === 0) return;
-  const o = JSON.parse(history.pop());
+function applySnapshot(s) {
+  const o = JSON.parse(s);
   state.paths = o.p;
   rawPath = o.r;
   smoothLevel = o.s;
-  $('undo').disabled = history.length === 0;
   scheduleRender();
   scheduleBake();
 }
+function refreshHistoryButtons() {
+  $('undo').disabled = undoHistory.length === 0;
+  $('redo').disabled = redoHistory.length === 0;
+}
+function pushHistory() {
+  undoHistory.push(snapshot());
+  redoHistory.length = 0;
+  if (undoHistory.length > 50) undoHistory.shift();
+  refreshHistoryButtons();
+}
+function undo() {
+  if (activeDrag || undoHistory.length === 0) return;
+  redoHistory.push(snapshot());
+  applySnapshot(undoHistory.pop());
+  refreshHistoryButtons();
+}
+function redo() {
+  if (activeDrag || redoHistory.length === 0) return;
+  undoHistory.push(snapshot());
+  applySnapshot(redoHistory.pop());
+  refreshHistoryButtons();
+}
 $('undo').addEventListener('click', undo);
+$('redo').addEventListener('click', redo);
 window.addEventListener('keydown', (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
-    e.preventDefault();
-    undo();
-  }
+  if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'z') return;
+  e.preventDefault();
+  if (e.shiftKey) redo(); else undo();
 });
 
 $('smooth').addEventListener('click', () => {
@@ -952,7 +972,7 @@ window.addEventListener('resize', () => {
 });
 
 // ─── Init ────────────────────────────────────────────────────────────────
-$('undo').disabled = true;
+refreshHistoryButtons();
 seedFromPreset('rainbow');
 updateSpeedLabel();
 scheduleRender();
