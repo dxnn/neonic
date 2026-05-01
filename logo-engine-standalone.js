@@ -217,7 +217,9 @@
   };
   CycleEngine.prototype._frame = function (now) {
     if (!this.running) return;
-    const dt = this._last ? (now - this._last) / 1000 : 0;
+    let dt = this._last ? (now - this._last) / 1000 : 0;
+    // Tab was hidden / paused: don't catch up — just skip ahead and resume.
+    if (dt > 0.1) dt = 0;
     this._last = now;
     this.offset += this.speed * dt;
     this._writePalette();

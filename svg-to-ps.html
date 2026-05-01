@@ -714,11 +714,11 @@ function setStops(newStops) {
 function rebuildRamp() {
   currentRamp = window.PshiftPng.buildRamp(stops);
   drawRampCanvas();
-  // Push live edits to the engine only when the editor's active palette
-  // is the one currently displayed, and not mid-transition. Use
-  // replacePalette so the cycle position isn't reset.
-  if (engine && engine.nextPalette === null
-      && (activeIdx === -1 || activeIdx === displayedIdx)) {
+  // Push live edits to the engine when the editor's active palette is
+  // currently displayed. During a transition this updates the outgoing
+  // basePalette — the new colors keep flowing out the tail until p2
+  // fully sweeps in, so the user sees their tweaks reflected.
+  if (engine && activeIdx === displayedIdx) {
     engine.replacePalette(currentRamp);
   }
   updateStopUI();
@@ -768,17 +768,10 @@ function addToPlaylist() {
 
 function removePlaylistItem(idx) {
   if (idx < 0 || idx >= playlist.length) return;
+  if (playlist.length <= 1) return;  // never empty
   const wasActive = idx === activeIdx;
   const wasDisplayed = idx === displayedIdx;
   playlist.splice(idx, 1);
-  if (playlist.length === 0) {
-    activeIdx = -1;
-    displayedIdx = -1;
-    pendingNextIdx = -1;
-    if (engine) engine.nextPalette = null;
-    renderPlaylist();
-    return;
-  }
   if (wasActive) {
     setActiveIdx(Math.min(idx, playlist.length - 1));
     return;
@@ -849,7 +842,7 @@ function renderPlaylist() {
   const root = $('playlist');
   root.innerHTML = '';
   $('modeRow').hidden = playlist.length < 2;
-  if (playlist.length < 2) return;
+  if (playlist.length === 0) return;
 
   for (let i = 0; i < playlist.length; i++) {
     const entry = playlist[i];
@@ -895,6 +888,7 @@ function renderPlaylist() {
     del.className = 'delete';
     del.textContent = '×';
     del.title = 'remove';
+    del.disabled = playlist.length === 1;
     del.addEventListener('click', (e) => {
       e.stopPropagation();
       removePlaylistItem(i);
@@ -1262,9 +1256,11 @@ strokeWIn.addEventListener('input', () => {
 });
 speedIn.addEventListener('input', () => {
   updateSpeedLabel();
-  if (activeIdx >= 0 && playlist[activeIdx]) playlist[activeIdx].speed = +speedIn.value;
-  if (engine && engine.nextPalette === null
-      && (activeIdx === -1 || activeIdx === displayedIdx)) {
+  if (playlist[activeIdx]) playlist[activeIdx].speed = +speedIn.value;
+  // Outside a transition, push directly. During a transition the
+  // watcher's tween reads playlist[activeIdx].speed each frame, so the
+  // change propagates that way.
+  if (engine && engine.nextPalette === null && activeIdx === displayedIdx) {
     engine.setSpeed(speedMagnitude());
   }
 });
@@ -1326,10 +1322,14 @@ window.addEventListener('resize', () => {
 });
 
 // ─── Init ────────────────────────────────────────────────────────────────
-// Playlist starts empty; user is editing a "scratch" palette. The first
-// click of "Add to playlist" creates the first entry.
+// Playlist always has at least one entry. The first "Add to playlist"
+// click yields a second entry (and reveals the mode toggle).
+playlist.push({ name: 'palette 1', stops: [], speed: 60, cycles: 1 });
+activeIdx = 0;
+displayedIdx = 0;
+stops = playlist[0].stops;
 refreshHistoryButtons();
-seedFromPreset('rainbow');
+seedFromPreset('rainbow');     // populates playlist[0].stops via setStops
 updateSpeedLabel();
 renderPlaylist();
 startCycleWatcher();
