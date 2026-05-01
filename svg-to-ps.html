@@ -199,6 +199,7 @@
 </div>
 
 <script src="logo-engine-standalone.js"></script>
+<script src="pshift-png.js"></script>
 <script type="module">
 import { getStroke } from './perfect-freehand.mjs';
 
@@ -609,31 +610,6 @@ function rebake() {
 }
 
 // ─── Palette stop editor ─────────────────────────────────────────────────
-function buildRampFromStops(stopList) {
-  const sorted = stopList.slice().sort((a, b) => a.t - b.t);
-  const out = new Array(255);
-  for (let i = 0; i < 255; i++) {
-    const t = i / 254;
-    let a = sorted[0], b = sorted[sorted.length - 1];
-    if (t <= sorted[0].t) { a = b = sorted[0]; }
-    else if (t >= sorted[sorted.length - 1].t) { a = b = sorted[sorted.length - 1]; }
-    else {
-      for (let k = 0; k < sorted.length - 1; k++) {
-        if (t >= sorted[k].t && t <= sorted[k + 1].t) {
-          a = sorted[k]; b = sorted[k + 1]; break;
-        }
-      }
-    }
-    const span = b.t - a.t || 1, u = (t - a.t) / span;
-    out[i] = [
-      Math.round(a.color[0] + (b.color[0] - a.color[0]) * u),
-      Math.round(a.color[1] + (b.color[1] - a.color[1]) * u),
-      Math.round(a.color[2] + (b.color[2] - a.color[2]) * u),
-    ];
-  }
-  return out;
-}
-
 function seedFromPreset(name) {
   const ramp = window.HyperDrive.PALETTES[name]();
   const N = ramp.length;
@@ -667,7 +643,7 @@ function seedFromPreset(name) {
 }
 
 function rebuildRamp() {
-  currentRamp = buildRampFromStops(stops);
+  currentRamp = window.PshiftPng.buildRamp(stops);
   drawRampCanvas();
   if (engine) engine.setPalette(currentRamp);
   updateStopUI();
@@ -822,32 +798,38 @@ $('smooth').addEventListener('click', () => {
 $('import').addEventListener('click', () => {
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = 'application/json,.json';
+  input.accept = 'image/png,.png';
   input.onchange = async () => {
     const file = input.files && input.files[0];
     if (!file) return;
-    let cfg;
-    try { cfg = JSON.parse(await file.text()); }
-    catch (err) { alert('Could not parse JSON: ' + err.message); return; }
-    if (!cfg.anchors || !Array.isArray(cfg.anchors) || cfg.anchors.length < 2) {
-      alert('JSON is missing an anchors array.');
+    let decoded;
+    try {
+      const buf = new Uint8Array(await file.arrayBuffer());
+      decoded = window.PshiftPng.decode(buf);
+    } catch (err) {
+      alert('Could not import: ' + err.message);
+      return;
+    }
+    const meta = decoded.metadata;
+    if (!Array.isArray(meta.anchors) || meta.anchors.length < 2) {
+      alert('PNG is missing an anchors array.');
       return;
     }
     pushHistory();
-    state.paths = [{ anchors: cfg.anchors }];
-    rawPath = cfg.anchors.map(a => ({ x: a.x, y: a.y, pressure: 0.5 }));
+    state.paths = [{ anchors: meta.anchors }];
+    rawPath = meta.anchors.map(a => ({ x: a.x, y: a.y, pressure: 0.5 }));
     smoothLevel = 1.5;
-    if (cfg.strokeWidth != null) {
-      strokeWIn.value = cfg.strokeWidth;
-      strokeWVal.textContent = cfg.strokeWidth;
+    if (meta.strokeWidth != null) {
+      strokeWIn.value = meta.strokeWidth;
+      strokeWVal.textContent = meta.strokeWidth;
     }
-    if (Array.isArray(cfg.stops) && cfg.stops.length >= 2) {
-      stops = cfg.stops.map(s => ({ t: s.t, color: s.color.slice() }));
+    if (Array.isArray(meta.stops) && meta.stops.length >= 2) {
+      stops = meta.stops.map(s => ({ t: s.t, color: s.color.slice() }));
       selectedStop = 0;
       rebuildRamp();
     }
-    if (cfg.speed != null) {
-      speedIn.value = cfg.speed;
+    if (meta.speed != null) {
+      speedIn.value = meta.speed;
       updateSpeedLabel();
     }
     scheduleRender();
@@ -856,27 +838,31 @@ $('import').addEventListener('click', () => {
   input.click();
 });
 
-$('export').addEventListener('click', () => {
-  if (state.paths.length === 0) return;
-  const path = state.paths[0];
-  const data = {
-    version: 1,
-    d: pathToD(path),
-    anchors: path.anchors,
-    strokeWidth: +strokeWIn.value,
-    scale: 1.6,
-    padding: 24,
-    half: 'full',
-    stops,
-    speed: +speedIn.value,
-  };
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'palette-cycle.json';
-  a.click();
-  URL.revokeObjectURL(url);
+$('export').addEventListener('click', async (e) => {
+  if (state.paths.length === 0 || !engine) return;
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  try {
+    const bytes = await window.PshiftPng.encode({
+      canvas: outCvs,
+      indices: engine.baked.indices,
+      anchors: state.paths[0].anchors,
+      stops,
+      strokeWidth: +strokeWIn.value,
+      scale: 1.6,
+      padding: 24,
+      half: 'full',
+      speed: +speedIn.value,
+    });
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'image/png' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'logo.pshift.png';
+    a.click();
+    URL.revokeObjectURL(url);
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 $('record').addEventListener('click', async (e) => {
