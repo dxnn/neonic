@@ -1,0 +1,817 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>SVG draw → palette-cycle · tool</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root {
+    --bg: #f7f5ee;
+    --ink: #15151a;
+    --muted: #6b6963;
+    --rule: rgba(21,21,26,.12);
+    --accent: #1f7bff;
+  }
+  html, body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 ui-serif, Georgia, "Iowan Old Style", serif; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 40px 24px 80px; }
+
+  header h1 { font-weight: 500; font-size: 28px; letter-spacing: -0.02em;
+    margin: 0 0 6px; line-height: 1.15; }
+  header .deck { color: var(--muted); font-size: 15px; max-width: 64ch; margin: 0; }
+  header .meta { color: var(--muted); font-size: 12px;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    text-transform: uppercase; letter-spacing: .12em; margin-bottom: 14px; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "draw animate"
+      "bezier palette";
+    gap: 18px;
+    margin-top: 28px;
+  }
+  .panel { background: #fff; border: .5px solid var(--rule);
+    border-radius: 10px; padding: 16px; min-width: 0; }
+  .panel.dark { background: #0a0a0b; }
+  .panel.draw { grid-area: draw; }
+  .panel.animate { grid-area: animate; }
+  .panel.bezier { grid-area: bezier; }
+  .panel.palette { grid-area: palette; }
+  .panel-tag { color: var(--muted); font-size: 11px;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    text-transform: uppercase; letter-spacing: .12em; margin-bottom: 6px; }
+  .panel.dark .panel-tag { color: rgba(232,230,223,.55); }
+  .panel h2 { font-weight: 500; font-size: 17px; letter-spacing: -0.01em;
+    margin: 0 0 12px; }
+  .panel.dark h2 { color: #e8e6df; }
+
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    margin-top: 12px; font: 12px ui-sans-serif, system-ui, sans-serif;
+    color: var(--ink); }
+  .panel.dark .row { color: #e8e6df; }
+  .row label { display: inline-flex; align-items: center; gap: 6px;
+    color: var(--muted); }
+  .panel.dark .row label { color: rgba(232,230,223,.55); }
+  .row .meta { color: var(--muted); margin-left: auto; }
+  .panel.dark .row .meta { color: rgba(232,230,223,.55); }
+  button { appearance: none; background: var(--ink); color: #fff;
+    border: 0; border-radius: 6px; padding: 6px 12px;
+    font: 12px ui-sans-serif, system-ui, sans-serif; font-weight: 500;
+    cursor: default; }
+  button.ghost { background: transparent; color: var(--ink);
+    border: .5px solid var(--rule); }
+  .panel.dark button.ghost { color: #e8e6df; border-color: rgba(255,255,255,.18); }
+  button:disabled { opacity: .35; }
+  input[type=number], select {
+    background: #fafaf6; color: var(--ink);
+    border: .5px solid var(--rule); border-radius: 6px;
+    padding: 4px 8px; font: 12px ui-sans-serif, system-ui, sans-serif; }
+  .panel.dark input[type=number], .panel.dark select {
+    background: #15151a; color: #e8e6df; border-color: rgba(255,255,255,.12); }
+  input[type=range] { width: 140px; vertical-align: middle; }
+  input[type=color] { width: 36px; height: 28px; padding: 0;
+    border: .5px solid var(--rule); border-radius: 6px;
+    background: transparent; }
+
+  canvas#draw, canvas#bezier {
+    display: block; width: 100%; height: 320px;
+    background: #fafaf6; border-radius: 6px;
+    user-select: none; -webkit-user-select: none;
+    touch-action: none;
+  }
+  canvas#draw { cursor: crosshair; }
+  canvas#bezier { cursor: default; }
+  canvas#ramp {
+    display: block; width: 100%; height: 64px;
+    background: #fafaf6; border-radius: 6px;
+    touch-action: none; user-select: none; -webkit-user-select: none;
+  }
+  .out-host {
+    display: grid; place-items: center;
+    min-height: 320px; padding: 4px;
+    border-radius: 6px; background: #050507;
+  }
+  canvas#out {
+    display: block; max-width: 100%; max-height: 100%;
+    height: auto; image-rendering: pixelated;
+    filter: drop-shadow(0 8px 22px rgba(0,0,0,.5));
+  }
+
+  footer { margin-top: 56px; padding-top: 20px;
+    border-top: .5px solid var(--rule);
+    font: 13px ui-sans-serif, system-ui, sans-serif; color: var(--muted); }
+  footer a { color: var(--ink); }
+
+  @media (max-width: 800px) {
+    .grid {
+      grid-template-columns: 1fr;
+      grid-template-areas: "draw" "animate" "bezier" "palette";
+    }
+    canvas#draw, canvas#bezier { height: 280px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="meta">SVG path → palette-cycle · drawing tool</div>
+  <h1>Sketch a stroke. Tweak the curve. Watch the palette cycle.</h1>
+  <p class="deck">Draw on the left, refine the path's anchors and tangents below it,
+    pick a palette on the right. The output cycles in real time.</p>
+</header>
+
+<div class="grid">
+
+  <section class="panel draw">
+    <div class="panel-tag">Step 1 · Draw</div>
+    <h2>Sketch a path.</h2>
+    <canvas id="draw"></canvas>
+    <div class="row">
+      <button class="ghost" id="clear">Clear</button>
+      <label>Stroke
+        <input id="strokeW" type="range" min="6" max="64" value="22" />
+        <span id="strokeW-val">22</span>
+      </label>
+    </div>
+  </section>
+
+  <section class="panel dark animate">
+    <div class="panel-tag">Step 4 · Animate</div>
+    <h2>Live preview.</h2>
+    <div class="out-host"><canvas id="out"></canvas></div>
+    <div class="row">
+      <label>Speed
+        <input id="speed" type="range" min="-200" max="200" value="60" />
+        <span id="speed-val">+60</span>
+      </label>
+      <span class="meta" id="bake-meta"></span>
+    </div>
+  </section>
+
+  <section class="panel bezier">
+    <div class="panel-tag">Step 2 · Edit</div>
+    <h2>Refine anchors &amp; tangents.</h2>
+    <canvas id="bezier"></canvas>
+    <div class="row">
+      <span class="meta" id="bez-meta"></span>
+    </div>
+  </section>
+
+  <section class="panel palette">
+    <div class="panel-tag">Step 3 · Color</div>
+    <h2>Build the palette.</h2>
+    <div class="row" style="margin-top: 0">
+      <label>Seed
+        <select id="seed"></select>
+      </label>
+      <button class="ghost" id="reset">Reset to seed</button>
+      <span class="meta" id="ramp-meta"></span>
+    </div>
+    <canvas id="ramp" style="margin-top: 12px"></canvas>
+    <div class="row">
+      <label>Color
+        <input type="color" id="stopColor" />
+      </label>
+      <label>Position
+        <input type="number" id="stopT" min="0" max="1" step="0.01" style="width: 5em" />
+      </label>
+      <button id="addStop">+ add stop</button>
+      <button class="ghost" id="removeStop">&times; remove</button>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  Curious how it works under the hood?
+  <a href="HyperDrive Process.html">Read the process essay &rarr;</a>
+</footer>
+
+</div>
+
+<script src="logo-engine-standalone.js"></script>
+<script type="module">
+import { getStroke } from './perfect-freehand.mjs';
+
+const $ = (id) => document.getElementById(id);
+
+// ─── State ───────────────────────────────────────────────────────────────
+const state = { paths: [] };
+let liveStroke = null;
+let rawLiveStroke = null;
+let currentRamp = null;
+let stops = [];
+let selectedStop = -1;
+
+let activeDrag = null;
+let renderRaf = 0;
+let bakeTimer = 0;
+let engine = null;
+let dpr = window.devicePixelRatio || 1;
+
+// ─── DOM refs ────────────────────────────────────────────────────────────
+const drawCvs    = $('draw');
+const bezCvs     = $('bezier');
+const rampCvs    = $('ramp');
+const outCvs     = $('out');
+const strokeWIn  = $('strokeW');
+const strokeWVal = $('strokeW-val');
+const speedIn    = $('speed');
+const speedVal   = $('speed-val');
+const seedSel    = $('seed');
+const stopColorIn= $('stopColor');
+const stopTIn    = $('stopT');
+const bakeMeta   = $('bake-meta');
+const bezMeta    = $('bez-meta');
+const rampMeta   = $('ramp-meta');
+
+const dctx = drawCvs.getContext('2d');
+const bctx = bezCvs.getContext('2d');
+const rctx = rampCvs.getContext('2d');
+
+// ─── Geometry ────────────────────────────────────────────────────────────
+function eventToCanvasPoint(e, canvas) {
+  const r = canvas.getBoundingClientRect();
+  return {
+    x: e.clientX - r.left,
+    y: e.clientY - r.top,
+    pressure: e.pressure || 0.5,
+  };
+}
+
+function rdpSimplify(points, eps) {
+  if (points.length < 3) return points.slice();
+  const sqEps = eps * eps;
+  const keep = new Uint8Array(points.length);
+  keep[0] = 1; keep[points.length - 1] = 1;
+  const stack = [[0, points.length - 1]];
+  while (stack.length) {
+    const [lo, hi] = stack.pop();
+    let maxSqD = 0, idx = -1;
+    const a = points[lo], b = points[hi];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len2 = dx*dx + dy*dy || 1;
+    for (let i = lo + 1; i < hi; i++) {
+      const px = points[i].x - a.x, py = points[i].y - a.y;
+      const t = (px*dx + py*dy) / len2;
+      const cx = a.x + t*dx, cy = a.y + t*dy;
+      const ex = points[i].x - cx, ey = points[i].y - cy;
+      const sq = ex*ex + ey*ey;
+      if (sq > maxSqD) { maxSqD = sq; idx = i; }
+    }
+    if (maxSqD > sqEps && idx > 0) {
+      keep[idx] = 1;
+      stack.push([lo, idx], [idx, hi]);
+    }
+  }
+  const out = [];
+  for (let i = 0; i < points.length; i++) if (keep[i]) out.push(points[i]);
+  return out;
+}
+
+function polylineToBezier(points) {
+  const n = points.length;
+  if (n < 2) return null;
+  const a = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const p = points[i];
+    const prev = points[i - 1] || p;
+    const next = points[i + 1] || p;
+    const tx = (next.x - prev.x) / 6;
+    const ty = (next.y - prev.y) / 6;
+    a[i] = {
+      x: p.x, y: p.y,
+      h1x: p.x - tx, h1y: p.y - ty,
+      h2x: p.x + tx, h2y: p.y + ty,
+    };
+  }
+  return { anchors: a };
+}
+
+function bezierPoint(p, q, t) {
+  const u = 1 - t;
+  return {
+    x: u*u*u*p.x + 3*u*u*t*p.h2x + 3*u*t*t*q.h1x + t*t*t*q.x,
+    y: u*u*u*p.y + 3*u*u*t*p.h2y + 3*u*t*t*q.h1y + t*t*t*q.y,
+  };
+}
+function samplePath(path, perSeg) {
+  const a = path.anchors;
+  if (a.length < 2) return [];
+  const out = [{ x: a[0].x, y: a[0].y }];
+  for (let i = 1; i < a.length; i++) {
+    const p = a[i-1], q = a[i];
+    for (let k = 1; k <= perSeg; k++) {
+      out.push(bezierPoint(p, q, k / perSeg));
+    }
+  }
+  return out;
+}
+function pathToD(path) {
+  const a = path.anchors;
+  if (a.length < 2) return '';
+  const f = (n) => n.toFixed(1);
+  let d = `M${f(a[0].x)},${f(a[0].y)}`;
+  for (let i = 1; i < a.length; i++) {
+    const p = a[i-1], q = a[i];
+    d += `C${f(p.h2x)},${f(p.h2y)} ${f(q.h1x)},${f(q.h1y)} ${f(q.x)},${f(q.y)}`;
+  }
+  return d;
+}
+
+// ─── Render ──────────────────────────────────────────────────────────────
+function fitCanvas(canvas, ctx) {
+  const cssW = canvas.clientWidth;
+  const cssH = canvas.clientHeight;
+  if (!cssW || !cssH) return false;
+  const W = Math.round(cssW * dpr);
+  const H = Math.round(cssH * dpr);
+  if (canvas.width !== W || canvas.height !== H) {
+    canvas.width = W;
+    canvas.height = H;
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return true;
+}
+
+function fillPolygon(ctx, pts, fill) {
+  if (pts.length < 3) return;
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawDrawingPanel() {
+  if (!fitCanvas(drawCvs, dctx)) return;
+  const cssW = drawCvs.clientWidth, cssH = drawCvs.clientHeight;
+  dctx.clearRect(0, 0, cssW, cssH);
+
+  const w = +strokeWIn.value;
+  const opts = { size: w, thinning: 0.4, smoothing: 0.55, streamline: 0.5 };
+
+  for (const path of state.paths) {
+    const sampled = samplePath(path, 12);
+    if (sampled.length < 2) continue;
+    const flat = sampled.map(p => [p.x, p.y, 0.5]);
+    const outline = getStroke(flat, { ...opts, last: true });
+    fillPolygon(dctx, outline, '#15151a');
+  }
+
+  if (rawLiveStroke && rawLiveStroke.length >= 1) {
+    const flat = rawLiveStroke.map(p => [p.x, p.y, p.pressure]);
+    const outline = getStroke(flat, { ...opts, last: !activeDrag });
+    fillPolygon(dctx, outline, '#15151a');
+  }
+
+  if (state.paths.length === 0 && !rawLiveStroke) {
+    dctx.fillStyle = 'rgba(21,21,26,0.32)';
+    dctx.font = '14px ui-sans-serif, system-ui, sans-serif';
+    dctx.fillText('draw a stroke', 16, 26);
+  }
+}
+
+function drawBezierPanel() {
+  if (!fitCanvas(bezCvs, bctx)) return;
+  const cssW = bezCvs.clientWidth, cssH = bezCvs.clientHeight;
+  bctx.clearRect(0, 0, cssW, cssH);
+
+  if (state.paths.length === 0) {
+    bctx.fillStyle = 'rgba(21,21,26,0.32)';
+    bctx.font = '14px ui-sans-serif, system-ui, sans-serif';
+    bctx.fillText('draw a stroke first', 16, 26);
+    return;
+  }
+
+  for (const path of state.paths) {
+    const a = path.anchors;
+    bctx.strokeStyle = '#15151a';
+    bctx.lineWidth = 1.5;
+    bctx.beginPath();
+    bctx.moveTo(a[0].x, a[0].y);
+    for (let i = 1; i < a.length; i++) {
+      const p = a[i-1], q = a[i];
+      bctx.bezierCurveTo(p.h2x, p.h2y, q.h1x, q.h1y, q.x, q.y);
+    }
+    bctx.stroke();
+
+    for (let i = 0; i < a.length; i++) {
+      if (i > 0) drawHandle(a[i].x, a[i].y, a[i].h1x, a[i].h1y);
+      if (i < a.length - 1) drawHandle(a[i].x, a[i].y, a[i].h2x, a[i].h2y);
+    }
+    for (let i = 0; i < a.length; i++) drawAnchor(a[i].x, a[i].y);
+  }
+
+  const totalAnchors = state.paths.reduce((n, p) => n + p.anchors.length, 0);
+  bezMeta.textContent = `${totalAnchors} anchors`;
+}
+
+function drawHandle(ax, ay, hx, hy) {
+  bctx.strokeStyle = 'rgba(31,123,255,0.45)';
+  bctx.lineWidth = 1;
+  bctx.beginPath();
+  bctx.moveTo(ax, ay); bctx.lineTo(hx, hy);
+  bctx.stroke();
+  bctx.fillStyle = '#fff';
+  bctx.strokeStyle = '#1f7bff';
+  bctx.lineWidth = 1.2;
+  bctx.beginPath();
+  bctx.rect(hx - 3.5, hy - 3.5, 7, 7);
+  bctx.fill(); bctx.stroke();
+}
+function drawAnchor(x, y) {
+  bctx.fillStyle = '#1f7bff';
+  bctx.strokeStyle = '#fff';
+  bctx.lineWidth = 1.5;
+  bctx.beginPath();
+  bctx.arc(x, y, 4.5, 0, Math.PI * 2);
+  bctx.fill(); bctx.stroke();
+}
+
+function scheduleRender() {
+  if (renderRaf) return;
+  renderRaf = requestAnimationFrame(() => {
+    renderRaf = 0;
+    drawDrawingPanel();
+    drawBezierPanel();
+  });
+}
+
+// ─── Pointer routing ─────────────────────────────────────────────────────
+drawCvs.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  state.paths = [];
+  rawLiveStroke = [eventToCanvasPoint(e, drawCvs)];
+  activeDrag = { kind: 'draw' };
+  scheduleRender();
+});
+
+bezCvs.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  const r = bezCvs.getBoundingClientRect();
+  const hit = bezierHitTest(e.clientX - r.left, e.clientY - r.top);
+  if (hit) activeDrag = { kind: 'bezier', ...hit };
+});
+
+rampCvs.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  const r = rampCvs.getBoundingClientRect();
+  const hit = rampHandleHitTest(e.clientX - r.left, e.clientY - r.top);
+  if (hit >= 0) {
+    selectedStop = hit;
+    activeDrag = { kind: 'ramp', stopIdx: hit };
+    drawRampCanvas();
+    updateStopUI();
+  }
+});
+
+window.addEventListener('pointermove', (e) => {
+  if (!activeDrag) return;
+  if (activeDrag.kind === 'draw') {
+    const p = eventToCanvasPoint(e, drawCvs);
+    const last = rawLiveStroke[rawLiveStroke.length - 1];
+    const dx = p.x - last.x, dy = p.y - last.y;
+    if (dx*dx + dy*dy < 4) return;
+    rawLiveStroke.push(p);
+    scheduleRender();
+  } else if (activeDrag.kind === 'bezier') {
+    const r = bezCvs.getBoundingClientRect();
+    const x = e.clientX - r.left, y = e.clientY - r.top;
+    const a = state.paths[activeDrag.pi].anchors[activeDrag.ai];
+    if (activeDrag.sub === 'anchor') {
+      const dx = x - a.x, dy = y - a.y;
+      a.x = x; a.y = y;
+      a.h1x += dx; a.h1y += dy;
+      a.h2x += dx; a.h2y += dy;
+    } else if (activeDrag.sub === 'h1') {
+      a.h1x = x; a.h1y = y;
+    } else if (activeDrag.sub === 'h2') {
+      a.h2x = x; a.h2y = y;
+    }
+    scheduleRender();
+    scheduleBake();
+  } else if (activeDrag.kind === 'ramp') {
+    const r = rampCvs.getBoundingClientRect();
+    const cssW = rampCvs.clientWidth || 1;
+    const t = Math.max(0, Math.min(1, (e.clientX - r.left) / cssW));
+    stops[activeDrag.stopIdx].t = t;
+    rebuildRamp();
+  }
+});
+
+window.addEventListener('pointerup', () => {
+  if (!activeDrag) return;
+  const drag = activeDrag;
+  activeDrag = null;
+  if (drag.kind === 'draw') {
+    if (rawLiveStroke && rawLiveStroke.length >= 2) {
+      const simplified = rdpSimplify(rawLiveStroke, 1.5);
+      const path = polylineToBezier(simplified);
+      if (path) state.paths = [path];
+    }
+    rawLiveStroke = null;
+    scheduleRender();
+    scheduleBake();
+  } else if (drag.kind === 'bezier') {
+    scheduleBake();
+  } else if (drag.kind === 'ramp') {
+    /* ramp drag is finalized by rebuildRamp on each move */
+  }
+});
+
+window.addEventListener('pointercancel', () => {
+  if (activeDrag && activeDrag.kind === 'draw') {
+    rawLiveStroke = null;
+  }
+  activeDrag = null;
+});
+
+function bezierHitTest(x, y) {
+  let best = null, bestD = 12;
+  for (let pi = 0; pi < state.paths.length; pi++) {
+    const a = state.paths[pi].anchors;
+    for (let ai = 0; ai < a.length; ai++) {
+      let d = Math.hypot(a[ai].x - x, a[ai].y - y);
+      if (d < bestD) { best = { pi, ai, sub: 'anchor' }; bestD = d; }
+      if (ai > 0) {
+        d = Math.hypot(a[ai].h1x - x, a[ai].h1y - y);
+        if (d < bestD) { best = { pi, ai, sub: 'h1' }; bestD = d; }
+      }
+      if (ai < a.length - 1) {
+        d = Math.hypot(a[ai].h2x - x, a[ai].h2y - y);
+        if (d < bestD) { best = { pi, ai, sub: 'h2' }; bestD = d; }
+      }
+    }
+  }
+  return best;
+}
+
+// ─── Bake & engine ───────────────────────────────────────────────────────
+function scheduleBake() {
+  clearTimeout(bakeTimer);
+  bakeTimer = setTimeout(rebake, 120);
+}
+
+function rebake() {
+  if (state.paths.length === 0) return;
+  const d = state.paths.map(pathToD).join(' ');
+  if (!d) return;
+  let baked;
+  try {
+    baked = window.HyperDrive.bakeFromD({
+      d, scale: 1.6, padding: 24,
+      strokeWidth: +strokeWIn.value,
+      half: 'full',
+    });
+  } catch (e) {
+    bakeMeta.textContent = 'bake failed: ' + e.message;
+    return;
+  }
+
+  const prev = engine
+    ? { offset: engine.offset, speed: engine.speed, reverse: engine.reverse, running: engine.running }
+    : null;
+  if (engine) engine.stop();
+
+  engine = new window.HyperDrive.CycleEngine(outCvs, baked);
+  engine.setPalette(currentRamp);
+  if (prev) {
+    engine.offset = prev.offset;
+    engine.setSpeed(prev.speed);
+    engine.setReverse(prev.reverse);
+    if (prev.running) engine.start();
+  } else {
+    engine.setSpeed(speedMagnitude());
+    engine.setReverse(speedReverse());
+    engine.start();
+  }
+  bakeMeta.textContent = `${baked.width}×${baked.height} · ${(baked.indices.byteLength/1024).toFixed(1)} KB`;
+}
+
+// ─── Palette stop editor ─────────────────────────────────────────────────
+function buildRampFromStops(stopList) {
+  const sorted = stopList.slice().sort((a, b) => a.t - b.t);
+  const out = new Array(255);
+  for (let i = 0; i < 255; i++) {
+    const t = i / 254;
+    let a = sorted[0], b = sorted[sorted.length - 1];
+    if (t <= sorted[0].t) { a = b = sorted[0]; }
+    else if (t >= sorted[sorted.length - 1].t) { a = b = sorted[sorted.length - 1]; }
+    else {
+      for (let k = 0; k < sorted.length - 1; k++) {
+        if (t >= sorted[k].t && t <= sorted[k + 1].t) {
+          a = sorted[k]; b = sorted[k + 1]; break;
+        }
+      }
+    }
+    const span = b.t - a.t || 1, u = (t - a.t) / span;
+    out[i] = [
+      Math.round(a.color[0] + (b.color[0] - a.color[0]) * u),
+      Math.round(a.color[1] + (b.color[1] - a.color[1]) * u),
+      Math.round(a.color[2] + (b.color[2] - a.color[2]) * u),
+    ];
+  }
+  return out;
+}
+
+function seedFromPreset(name) {
+  const ramp = window.HyperDrive.PALETTES[name]();
+  const N = ramp.length;
+  const cum = new Array(N);
+  cum[0] = 0;
+  for (let i = 1; i < N; i++) {
+    const dr = ramp[i][0] - ramp[i-1][0];
+    const dg = ramp[i][1] - ramp[i-1][1];
+    const db = ramp[i][2] - ramp[i-1][2];
+    cum[i] = cum[i-1] + Math.sqrt(dr*dr + dg*dg + db*db);
+  }
+  const total = cum[N-1];
+  const target = 12;
+  const newStops = [];
+  newStops.push({ t: 0, color: ramp[0].slice() });
+  if (total > 0) {
+    for (let k = 1; k < target - 1; k++) {
+      const goal = (k / (target - 1)) * total;
+      let i = 0;
+      while (i < N - 1 && cum[i] < goal) i++;
+      const t = i / (N - 1);
+      const lastT = newStops[newStops.length - 1].t;
+      if (t - lastT < 0.003) continue;
+      newStops.push({ t, color: ramp[i].slice() });
+    }
+  }
+  newStops.push({ t: 1, color: ramp[N-1].slice() });
+  stops = newStops;
+  selectedStop = 0;
+  rebuildRamp();
+}
+
+function rebuildRamp() {
+  currentRamp = buildRampFromStops(stops);
+  drawRampCanvas();
+  if (engine) engine.setPalette(currentRamp);
+  updateStopUI();
+  rampMeta.textContent = `${stops.length} stops`;
+}
+
+function drawRampCanvas() {
+  const cssW = rampCvs.clientWidth || 720;
+  const cssH = 64;
+  rampCvs.width = cssW;
+  rampCvs.height = cssH;
+  const barH = cssH - 22;
+  for (let x = 0; x < cssW; x++) {
+    const t = x / Math.max(1, cssW - 1);
+    const idx = Math.min(254, Math.max(0, Math.round(t * 254)));
+    const [r, g, b] = currentRamp[idx];
+    rctx.fillStyle = `rgb(${r},${g},${b})`;
+    rctx.fillRect(x, 0, 1, barH);
+  }
+  rctx.strokeStyle = 'rgba(0,0,0,0.18)';
+  rctx.lineWidth = 1;
+  rctx.strokeRect(0.5, 0.5, cssW - 1, barH - 1);
+
+  const handleY = barH + 9;
+  const sortedIdx = stops
+    .map((s, i) => ({ i, t: s.t }))
+    .sort((a, b) => a.t - b.t)
+    .map(o => o.i);
+  for (const i of sortedIdx) {
+    const s = stops[i];
+    const x = Math.max(6, Math.min(cssW - 6, s.t * cssW));
+    const sel = i === selectedStop;
+    rctx.fillStyle = `rgb(${s.color[0]},${s.color[1]},${s.color[2]})`;
+    rctx.strokeStyle = sel ? '#1f7bff' : 'rgba(0,0,0,0.7)';
+    rctx.lineWidth = sel ? 2 : 1;
+    rctx.beginPath();
+    rctx.arc(x, handleY, sel ? 7 : 5, 0, Math.PI * 2);
+    rctx.fill(); rctx.stroke();
+  }
+}
+
+function rampHandleHitTest(x, y) {
+  const cssW = rampCvs.clientWidth;
+  const cssH = rampCvs.clientHeight;
+  const handleY = (cssH - 22) + 9;
+  let best = -1, bestD = 14;
+  for (let i = 0; i < stops.length; i++) {
+    const hx = Math.max(6, Math.min(cssW - 6, stops[i].t * cssW));
+    const d = Math.hypot(hx - x, handleY - y);
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return best;
+}
+
+function rgbToHex([r, g, b]) {
+  const h = (v) => v.toString(16).padStart(2, '0');
+  return '#' + h(r) + h(g) + h(b);
+}
+function hexToRgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function updateStopUI() {
+  if (selectedStop < 0 || !stops[selectedStop]) {
+    stopColorIn.disabled = true;
+    stopTIn.disabled = true;
+    stopColorIn.value = '#000000';
+    stopTIn.value = '';
+  } else {
+    const s = stops[selectedStop];
+    stopColorIn.disabled = false;
+    stopTIn.disabled = false;
+    stopColorIn.value = rgbToHex(s.color);
+    stopTIn.value = s.t.toFixed(3);
+  }
+  $('removeStop').disabled = stops.length <= 2 || selectedStop < 0;
+}
+
+// ─── Speed ───────────────────────────────────────────────────────────────
+function speedMagnitude() { return Math.abs(+speedIn.value); }
+function speedReverse() { return +speedIn.value < 0; }
+function updateSpeedLabel() {
+  const v = +speedIn.value;
+  speedVal.textContent = (v >= 0 ? '+' : '') + v;
+}
+
+// ─── Wire-up ─────────────────────────────────────────────────────────────
+$('clear').addEventListener('click', () => {
+  state.paths = [];
+  rawLiveStroke = null;
+  if (engine) { engine.stop(); engine = null; }
+  outCvs.width = 1; outCvs.height = 1;
+  bakeMeta.textContent = '';
+  scheduleRender();
+});
+
+strokeWIn.addEventListener('input', () => {
+  strokeWVal.textContent = strokeWIn.value;
+  scheduleRender();
+  scheduleBake();
+});
+speedIn.addEventListener('input', () => {
+  updateSpeedLabel();
+  if (engine) {
+    engine.setSpeed(speedMagnitude());
+    engine.setReverse(speedReverse());
+  }
+});
+
+stopColorIn.addEventListener('input', () => {
+  if (selectedStop < 0) return;
+  stops[selectedStop].color = hexToRgb(stopColorIn.value);
+  rebuildRamp();
+});
+stopTIn.addEventListener('input', () => {
+  if (selectedStop < 0) return;
+  const t = Math.max(0, Math.min(1, +stopTIn.value || 0));
+  stops[selectedStop].t = t;
+  rebuildRamp();
+});
+$('addStop').addEventListener('click', () => {
+  const sorted = stops.slice().sort((a, b) => a.t - b.t);
+  let bestGap = 0, bestT = 0.5;
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const gap = sorted[i + 1].t - sorted[i].t;
+    if (gap > bestGap) { bestGap = gap; bestT = (sorted[i].t + sorted[i + 1].t) / 2; }
+  }
+  const idx = Math.min(254, Math.max(0, Math.round(bestT * 254)));
+  stops.push({ t: bestT, color: currentRamp[idx].slice() });
+  selectedStop = stops.length - 1;
+  rebuildRamp();
+});
+$('removeStop').addEventListener('click', () => {
+  if (stops.length <= 2 || selectedStop < 0) return;
+  stops.splice(selectedStop, 1);
+  selectedStop = Math.min(selectedStop, stops.length - 1);
+  rebuildRamp();
+});
+
+for (const name of Object.keys(window.HyperDrive.PALETTES)) {
+  const o = document.createElement('option');
+  o.value = name; o.textContent = name;
+  seedSel.appendChild(o);
+}
+seedSel.value = 'rainbow';
+seedSel.addEventListener('change', () => seedFromPreset(seedSel.value));
+$('reset').addEventListener('click', () => seedFromPreset(seedSel.value));
+
+window.addEventListener('resize', () => {
+  dpr = window.devicePixelRatio || 1;
+  drawRampCanvas();
+  scheduleRender();
+});
+
+// ─── Init ────────────────────────────────────────────────────────────────
+seedFromPreset('rainbow');
+updateSpeedLabel();
+scheduleRender();
+</script>
+</body>
+</html>
