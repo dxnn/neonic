@@ -282,14 +282,10 @@ const redoHistory = [];
 const playlist = [];        // [{ name, stops, speed, cycles }]
 let activeIdx = -1;         // editor's selected entry; -1 = scratch (no playlist)
 let displayedIdx = -1;      // engine's currently-playing entry
+let pendingNextIdx = -1;    // queued next-displayed during a transition
 let playMode = 'sequential';
-let cyclesAccumulator = 0;
-let lastEngineOffset = 0;
 let targetCycles = 1;
 let cycleRaf = 0;
-let transitionInProgress = false;
-let transitionStartOff = 0;
-let pendingNextIdx = -1;
 
 // ─── DOM refs ────────────────────────────────────────────────────────────
 const drawCvs    = $('draw');
@@ -718,11 +714,12 @@ function setStops(newStops) {
 function rebuildRamp() {
   currentRamp = window.PshiftPng.buildRamp(stops);
   drawRampCanvas();
-  // Push to engine only when the editor's active palette is the one
-  // currently on screen, and not mid-transition.
-  if (engine && !transitionInProgress
+  // Push live edits to the engine only when the editor's active palette
+  // is the one currently displayed, and not mid-transition. Use
+  // replacePalette so the cycle position isn't reset.
+  if (engine && engine.nextPalette === null
       && (activeIdx === -1 || activeIdx === displayedIdx)) {
-    engine.setPalette(currentRamp);
+    engine.replacePalette(currentRamp);
   }
   updateStopUI();
   updateActivePlaylistRamp();
@@ -731,8 +728,9 @@ function rebuildRamp() {
 
 // ─── Playlist ────────────────────────────────────────────────────────────
 // Click-to-load: also jumps the live engine to the clicked palette via
-// setPalette (hard cut). Auto-advance never touches activeIdx — that only
-// changes when the user clicks a row.
+// setPalette (hard cut, resets baseStartOff so cycle counting restarts).
+// Auto-advance never touches activeIdx — only setActiveIdx does, called
+// only from user clicks and Add.
 function setActiveIdx(idx) {
   if (idx < 0 || idx >= playlist.length) return;
   activeIdx = idx;
@@ -742,15 +740,11 @@ function setActiveIdx(idx) {
   selectedStop = Math.min(Math.max(0, selectedStop), stops.length - 1);
   speedIn.value = entry.speed;
   updateSpeedLabel();
-  transitionInProgress = false;
   pendingNextIdx = -1;
-  cyclesAccumulator = 0;
-  lastEngineOffset = engine ? engine.offset : 0;
   targetCycles = entry.cycles || 1;
   if (engine) {
     engine.setPalette(window.PshiftPng.buildRamp(entry.stops));
     engine.setSpeed(speedMagnitude());
-    engine.setReverse(speedReverse());
   }
   currentRamp = window.PshiftPng.buildRamp(stops);
   drawRampCanvas();
@@ -780,8 +774,8 @@ function removePlaylistItem(idx) {
   if (playlist.length === 0) {
     activeIdx = -1;
     displayedIdx = -1;
-    transitionInProgress = false;
     pendingNextIdx = -1;
+    if (engine) engine.nextPalette = null;
     renderPlaylist();
     return;
   }
@@ -792,15 +786,12 @@ function removePlaylistItem(idx) {
   if (idx < activeIdx) activeIdx--;
   if (wasDisplayed) {
     displayedIdx = activeIdx;
-    transitionInProgress = false;
+    pendingNextIdx = -1;
     const entry = playlist[displayedIdx];
     if (engine && entry) {
       engine.setPalette(window.PshiftPng.buildRamp(entry.stops));
       engine.setSpeed(Math.abs(entry.speed));
-      engine.setReverse(true);
     }
-    cyclesAccumulator = 0;
-    lastEngineOffset = engine ? engine.offset : 0;
     targetCycles = entry ? (entry.cycles || 1) : 1;
   } else if (idx < displayedIdx) {
     displayedIdx--;
@@ -944,39 +935,37 @@ function pickNextIdx() {
 
 function startCycleWatcher() {
   if (cycleRaf) cancelAnimationFrame(cycleRaf);
-  cyclesAccumulator = 0;
-  lastEngineOffset = engine ? engine.offset : 0;
   function tick() {
-    if (engine && engine.running) {
-      cyclesAccumulator += Math.abs(engine.offset - lastEngineOffset) / 255;
-      lastEngineOffset = engine.offset;
-      if (transitionInProgress) {
-        if (engine.offset - transitionStartOff >= 255) {
-          // Transition complete — engine has internally promoted basePalette.
-          transitionInProgress = false;
-          displayedIdx = pendingNextIdx;
-          pendingNextIdx = -1;
-          const entry = playlist[displayedIdx];
-          if (entry) {
-            engine.setSpeed(Math.abs(entry.speed));
-            engine.setReverse(true);
-            cyclesAccumulator = 0;
-            targetCycles = playMode === 'surprise'
-              ? 1 + Math.floor(Math.random() * 4)
-              : (entry.cycles || 1);
-          }
-          updatePlayingMarker();
+    if (engine && engine.running && playlist.length >= 2 && displayedIdx >= 0) {
+      if (engine.nextPalette !== null) {
+        // Mid-transition: tween speed across the 254-tick spread.
+        const tFrac = Math.max(0, Math.min(1,
+          (engine.offset - engine.nextStartOff) / 254));
+        const s1 = playlist[displayedIdx]?.speed ?? 0;
+        const s2 = playlist[pendingNextIdx]?.speed ?? s1;
+        engine.setSpeed(Math.abs(s1 + (s2 - s1) * tFrac));
+      } else if (pendingNextIdx >= 0) {
+        // Engine just promoted — finalize.
+        displayedIdx = pendingNextIdx;
+        pendingNextIdx = -1;
+        const entry = playlist[displayedIdx];
+        targetCycles = playMode === 'surprise'
+          ? 1 + Math.floor(Math.random() * 4)
+          : (entry.cycles || 1);
+        engine.setSpeed(Math.abs(entry.speed));
+        updatePlayingMarker();
+      } else {
+        // Steady-state: trigger next transition once cycles_played ≥ target.
+        const cyclesPlayed = (engine.offset - engine.baseStartOff) / 255;
+        if (cyclesPlayed >= targetCycles) {
+          const nextIdx = pickNextIdx();
+          const nextStart = engine.baseStartOff + targetCycles * 255;
+          engine.transitionTo(
+            window.PshiftPng.buildRamp(playlist[nextIdx].stops),
+            nextStart);
+          pendingNextIdx = nextIdx;
         }
-      } else if (playlist.length >= 2 && cyclesAccumulator >= targetCycles) {
-        const nextIdx = pickNextIdx();
-        const nextEntry = playlist[nextIdx];
-        pendingNextIdx = nextIdx;
-        transitionStartOff = engine.offset;
-        transitionInProgress = true;
-        engine.transitionTo(window.PshiftPng.buildRamp(nextEntry.stops));
       }
-    } else if (engine) {
-      lastEngineOffset = engine.offset;
     }
     cycleRaf = requestAnimationFrame(tick);
   }
@@ -1274,10 +1263,9 @@ strokeWIn.addEventListener('input', () => {
 speedIn.addEventListener('input', () => {
   updateSpeedLabel();
   if (activeIdx >= 0 && playlist[activeIdx]) playlist[activeIdx].speed = +speedIn.value;
-  if (engine && !transitionInProgress
+  if (engine && engine.nextPalette === null
       && (activeIdx === -1 || activeIdx === displayedIdx)) {
     engine.setSpeed(speedMagnitude());
-    engine.setReverse(speedReverse());
   }
 });
 
@@ -1328,8 +1316,6 @@ document.querySelectorAll('input[name="mode"]').forEach((r) => {
   r.addEventListener('change', (e) => {
     if (!e.target.checked) return;
     playMode = e.target.value;
-    cyclesAccumulator = 0;
-    if (engine) lastEngineOffset = engine.offset;
   });
 });
 

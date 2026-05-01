@@ -112,45 +112,43 @@ async function mountLogo(canvas) {
     const p = palettes[idx];
     eng.setPalette(window.PshiftPng.buildRamp(p.stops));
     eng.setSpeed(Math.abs(p.speed));
-    eng.setReverse(true);
   }
   applyPalette(curIdx);
   eng.start();
 
   if (palettes.length >= 2) {
     let target = palettes[curIdx].cycles || 1;
-    let acc = 0;
-    let lastOff = eng.offset;
-    let inT = false;
-    let tStart = 0;
     let pendingNext = -1;
     function tick() {
       if (eng.running) {
-        acc += Math.abs(eng.offset - lastOff) / 255;
-        lastOff = eng.offset;
-        if (inT) {
-          if (eng.offset - tStart >= 255) {
-            inT = false;
-            curIdx = pendingNext;
-            const p = palettes[curIdx];
-            eng.setSpeed(Math.abs(p.speed));
-            eng.setReverse(true);
-            acc = 0;
-            target = mode === 'surprise' ? 1 + Math.floor(Math.random() * 4)
-                                         : (p.cycles || 1);
+        if (eng.nextPalette !== null) {
+          // Tween speed across the 254-tick spread.
+          const tFrac = Math.max(0, Math.min(1,
+            (eng.offset - eng.nextStartOff) / 254));
+          const s1 = palettes[curIdx].speed;
+          const s2 = palettes[pendingNext].speed;
+          eng.setSpeed(Math.abs(s1 + (s2 - s1) * tFrac));
+        } else if (pendingNext >= 0) {
+          curIdx = pendingNext;
+          pendingNext = -1;
+          const p = palettes[curIdx];
+          eng.setSpeed(Math.abs(p.speed));
+          target = mode === 'surprise' ? 1 + Math.floor(Math.random() * 4)
+                                       : (p.cycles || 1);
+        } else {
+          const cyclesPlayed = (eng.offset - eng.baseStartOff) / 255;
+          if (cyclesPlayed >= target) {
+            let next;
+            if (mode === 'sequential') next = (curIdx + 1) % palettes.length;
+            else { do { next = Math.floor(Math.random() * palettes.length); }
+                   while (next === curIdx); }
+            pendingNext = next;
+            const nextStart = eng.baseStartOff + target * 255;
+            eng.transitionTo(
+              window.PshiftPng.buildRamp(palettes[next].stops),
+              nextStart);
           }
-        } else if (acc >= target) {
-          let next;
-          if (mode === 'sequential') next = (curIdx + 1) % palettes.length;
-          else { do { next = Math.floor(Math.random() * palettes.length); }
-                 while (next === curIdx); }
-          pendingNext = next;
-          tStart = eng.offset;
-          inT = true;
-          eng.transitionTo(window.PshiftPng.buildRamp(palettes[next].stops));
         }
-      } else {
-        lastOff = eng.offset;
       }
       requestAnimationFrame(tick);
     }

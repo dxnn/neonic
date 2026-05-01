@@ -137,6 +137,16 @@
   }
 
   // ─── runtime ────────────────────────────────────────────────────────────
+  // Forward-feed model: every palette is "fed in" at palette[1], with a
+  // specific color flowing outward to palette[2], [3], ... over time.
+  //
+  //   palette[i+1] at offset `off` reads
+  //     basePalette[(off - i - baseStartOff) mod 255]
+  //
+  // Transitioning to a new palette: schedule it at `nextStartOff`. Tape
+  // position s = off - i; if s ≥ nextStartOff that palette index has been
+  // "swept" and reads from nextPalette[(s - nextStartOff) mod 255] instead.
+  // After 254 off-ticks the new palette has fully spread and we promote.
   function CycleEngine(canvas, baked) {
     this.canvas = canvas; this.baked = baked;
     canvas.width = baked.width; canvas.height = baked.height;
@@ -145,45 +155,59 @@
     this.data32 = new Uint32Array(this.image.data.buffer);
     this.palette = new Uint32Array(256); this.palette[0] = 0;
     this.basePalette = PALETTES.greyscale();
-    this.nextPalette = this.basePalette;
-    // -1 = no transition; otherwise the offset value at which transitionTo()
-    // was called. While in transition, ramp position k uses nextPalette[k]
-    // for k < (offset - transitionStartOff) and basePalette[k] otherwise,
-    // so the new palette is "fed in" position-by-position over one full
-    // cycle, then promoted to base.
-    this.transitionStartOff = -1;
+    this.baseStartOff = 0;
+    this.nextPalette = null;
+    this.nextStartOff = -1;
     this.offset = 0; this.speed = 40; this.reverse = false;
     this.running = false; this._raf = 0; this._last = 0;
   }
   CycleEngine.prototype.setPalette = function (n) {
     this.basePalette = typeof n === 'string' ? PALETTES[n]() : n;
-    this.nextPalette = this.basePalette;
-    this.transitionStartOff = -1;
+    this.baseStartOff = this.offset;
+    this.nextPalette = null;
+    this.nextStartOff = -1;
     this._writePalette();
   };
-  CycleEngine.prototype.transitionTo = function (n) {
+  // Live-edit a palette without resetting the cycle position. Used by the
+  // editor's stop-edits — the user wants their tweaks to appear without
+  // jumping the cycle back to phase 0.
+  CycleEngine.prototype.replacePalette = function (n) {
+    this.basePalette = typeof n === 'string' ? PALETTES[n]() : n;
+    this._writePalette();
+  };
+  // Schedule a feed-in of `n` starting at `scheduledOff` (defaults to now).
+  // The watcher snaps scheduledOff to a cycle boundary so palette[1] reads
+  // n[0] exactly at scheduledOff.
+  CycleEngine.prototype.transitionTo = function (n, scheduledOff) {
     this.nextPalette = typeof n === 'string' ? PALETTES[n]() : n;
-    this.transitionStartOff = this.offset;
+    this.nextStartOff = (scheduledOff != null) ? scheduledOff : this.offset;
     this._writePalette();
   };
   CycleEngine.prototype.setSpeed = function (s) { this.speed = s; };
   CycleEngine.prototype.setReverse = function (r) { this.reverse = !!r; };
   CycleEngine.prototype._writePalette = function () {
-    if (this.transitionStartOff >= 0 && (this.offset - this.transitionStartOff) >= 255) {
+    if (this.nextPalette !== null && (this.offset - this.nextStartOff) >= 254) {
       this.basePalette = this.nextPalette;
-      this.transitionStartOff = -1;
+      this.baseStartOff = this.nextStartOff;
+      this.nextPalette = null;
+      this.nextStartOff = -1;
     }
-    const a = this.basePalette, b = this.nextPalette, pal = this.palette;
-    const off = ((this.offset % 255) + 255) % 255;
-    const sign = this.reverse ? -1 : 1;
-    const inT = this.transitionStartOff >= 0;
-    const delta = inT ? (this.offset - this.transitionStartOff) : 0;
+    const a = this.basePalette, b = this.nextPalette;
+    const aOff = this.baseStartOff, bOff = this.nextStartOff;
+    const off = this.offset;
+    const pal = this.palette;
     for (let i = 0; i < 255; i++) {
-      let k = i + sign * off; k = ((k % 255) + 255) % 255;
-      const k0 = Math.floor(k), k1 = (k0+1) % 255, f = k - k0;
-      const src0 = (inT && k0 < delta) ? b : a;
-      const src1 = (inT && k1 < delta) ? b : a;
-      const c0 = src0[k0], c1 = src1[k1];
+      const s = off - i;
+      let pos, p;
+      if (b !== null && s >= bOff) {
+        pos = ((s - bOff) % 255 + 255) % 255;
+        p = b;
+      } else {
+        pos = ((s - aOff) % 255 + 255) % 255;
+        p = a;
+      }
+      const k0 = Math.floor(pos), k1 = (k0 + 1) % 255, f = pos - k0;
+      const c0 = p[k0], c1 = p[k1];
       const r = c0[0] + (c1[0] - c0[0]) * f;
       const g = c0[1] + (c1[1] - c0[1]) * f;
       const bl = c0[2] + (c1[2] - c0[2]) * f;
