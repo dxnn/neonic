@@ -881,7 +881,7 @@ function renderPlaylist() {
       const v = Math.max(1, Math.min(99, +cycles.value || 1));
       cycles.value = v;
       entry.cycles = v;
-      if (i === activeIdx) targetCycles = v;
+      if (i === displayedIdx) targetCycles = v;
     });
     cycles.addEventListener('click', (e) => e.stopPropagation());
     item.appendChild(cycles);
