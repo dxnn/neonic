@@ -148,6 +148,7 @@
         <span id="speed-val">+60</span>
       </label>
       <button class="ghost" id="export">Export</button>
+      <button class="ghost" id="import">Import</button>
       <button class="ghost" id="record">Record</button>
       <span class="meta" id="bake-meta"></span>
     </div>
@@ -206,6 +207,8 @@ const $ = (id) => document.getElementById(id);
 const state = { paths: [] };
 let liveStroke = null;
 let rawLiveStroke = null;
+let rawPath = null;
+let smoothLevel = 1.5;
 let currentRamp = null;
 let stops = [];
 let selectedStop = -1;
@@ -519,8 +522,9 @@ window.addEventListener('pointerup', () => {
   activeDrag = null;
   if (drag.kind === 'draw') {
     if (rawLiveStroke && rawLiveStroke.length >= 2) {
-      const simplified = rdpSimplify(rawLiveStroke, 1.5);
-      const path = polylineToBezier(simplified);
+      rawPath = rawLiveStroke.slice();
+      smoothLevel = 1.5;
+      const path = polylineToBezier(rdpSimplify(rawPath, smoothLevel));
       if (path) state.paths = [path];
     }
     rawLiveStroke = null;
@@ -754,6 +758,8 @@ $('clear').addEventListener('click', () => {
   pushHistory();
   state.paths = [];
   rawLiveStroke = null;
+  rawPath = null;
+  smoothLevel = 1.5;
   if (engine) { engine.stop(); engine = null; }
   outCvs.width = 1; outCvs.height = 1;
   bakeMeta.textContent = '';
@@ -761,13 +767,16 @@ $('clear').addEventListener('click', () => {
 });
 
 function pushHistory() {
-  history.push(JSON.stringify(state.paths));
+  history.push(JSON.stringify({ p: state.paths, r: rawPath, s: smoothLevel }));
   if (history.length > 50) history.shift();
   $('undo').disabled = history.length === 0;
 }
 function undo() {
   if (activeDrag || history.length === 0) return;
-  state.paths = JSON.parse(history.pop());
+  const o = JSON.parse(history.pop());
+  state.paths = o.p;
+  rawPath = o.r;
+  smoothLevel = o.s;
   $('undo').disabled = history.length === 0;
   scheduleRender();
   scheduleBake();
@@ -781,13 +790,50 @@ window.addEventListener('keydown', (e) => {
 });
 
 $('smooth').addEventListener('click', () => {
-  if (state.paths.length === 0) return;
+  if (!rawPath || rawPath.length < 2) return;
   pushHistory();
-  const polyline = samplePath(state.paths[0], 8);
-  const path = polylineToBezier(rdpSimplify(polyline, 2.5));
+  smoothLevel = Math.min(smoothLevel * 1.8, 60);
+  const path = polylineToBezier(rdpSimplify(rawPath, smoothLevel));
   if (path) state.paths = [path];
   scheduleRender();
   scheduleBake();
+});
+
+$('import').addEventListener('click', () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'application/json,.json';
+  input.onchange = async () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    let cfg;
+    try { cfg = JSON.parse(await file.text()); }
+    catch (err) { alert('Could not parse JSON: ' + err.message); return; }
+    if (!cfg.anchors || !Array.isArray(cfg.anchors) || cfg.anchors.length < 2) {
+      alert('JSON is missing an anchors array.');
+      return;
+    }
+    pushHistory();
+    state.paths = [{ anchors: cfg.anchors }];
+    rawPath = cfg.anchors.map(a => ({ x: a.x, y: a.y, pressure: 0.5 }));
+    smoothLevel = 1.5;
+    if (cfg.strokeWidth != null) {
+      strokeWIn.value = cfg.strokeWidth;
+      strokeWVal.textContent = cfg.strokeWidth;
+    }
+    if (Array.isArray(cfg.stops) && cfg.stops.length >= 2) {
+      stops = cfg.stops.map(s => ({ t: s.t, color: s.color.slice() }));
+      selectedStop = 0;
+      rebuildRamp();
+    }
+    if (cfg.speed != null) {
+      speedIn.value = cfg.speed;
+      updateSpeedLabel();
+    }
+    scheduleRender();
+    scheduleBake();
+  };
+  input.click();
 });
 
 $('export').addEventListener('click', () => {
