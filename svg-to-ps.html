@@ -114,6 +114,9 @@
     cursor: default;
   }
   .playlist-item.active { border-color: var(--accent); background: #eef4ff; }
+  .playlist-item.playing::before {
+    content: '▶'; color: var(--accent); margin-right: 4px; font-size: 10px;
+  }
   .playlist-item.dragging { opacity: .35; }
   .playlist-item.drag-over { border-color: var(--accent); border-style: dashed; }
   .playlist-item .grip {
@@ -842,6 +845,15 @@ function updateActivePlaylistRamp() {
   }
 }
 
+function updatePlayingMarker() {
+  const root = $('playlist');
+  if (!root) return;
+  for (const item of root.children) {
+    const idx = +item.dataset.idx;
+    item.classList.toggle('playing', idx === displayedIdx);
+  }
+}
+
 function renderPlaylist() {
   const root = $('playlist');
   root.innerHTML = '';
@@ -851,7 +863,9 @@ function renderPlaylist() {
   for (let i = 0; i < playlist.length; i++) {
     const entry = playlist[i];
     const item = document.createElement('div');
-    item.className = 'playlist-item' + (i === activeIdx ? ' active' : '');
+    item.className = 'playlist-item'
+      + (i === activeIdx ? ' active' : '')
+      + (i === displayedIdx ? ' playing' : '');
     item.draggable = true;
     item.dataset.idx = String(i);
 
@@ -951,7 +965,7 @@ function startCycleWatcher() {
               ? 1 + Math.floor(Math.random() * 4)
               : (entry.cycles || 1);
           }
-          renderPlaylist();
+          updatePlayingMarker();
         }
       } else if (playlist.length >= 2 && cyclesAccumulator >= targetCycles) {
         const nextIdx = pickNextIdx();
