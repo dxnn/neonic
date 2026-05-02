@@ -301,7 +301,7 @@
 <script src="logo-engine-standalone.js"></script>
 <script src="pshift-png.js"></script>
 <script type="module">
-import { getStroke } from './perfect-freehand.mjs';
+import { getStroke, getStrokePoints } from './perfect-freehand.mjs';
 
 const $ = (id) => document.getElementById(id);
 
@@ -471,6 +471,18 @@ function fillPolygon(ctx, pts, fill) {
 function getInk()   { return getComputedStyle(document.documentElement).getPropertyValue('--ink').trim()   || '#15151a'; }
 function getMuted() { return getComputedStyle(document.documentElement).getPropertyValue('--muted').trim() || '#6b6963'; }
 
+// Pre-process a freshly-drawn stroke with perfect-freehand's pressure
+// simulator. Mouse / non-pen input arrives with a flat 0.5 pressure;
+// PF's getStrokePoints turns velocity into pressure (faster strokes
+// → lower pressure → thinner output). Returns {x, y, pressure}[].
+function simulatePressureFor(rawPoints, size) {
+  const flat = rawPoints.map(p => [p.x, p.y, p.pressure]);
+  const adjusted = getStrokePoints(flat, {
+    size, simulatePressure: true, streamline: 0.5, last: true,
+  });
+  return adjusted.map(p => ({ x: p.point[0], y: p.point[1], pressure: p.pressure }));
+}
+
 function drawDrawingPanel() {
   if (!fitCanvas(drawCvs, dctx)) return;
   const cssW = drawCvs.clientWidth, cssH = drawCvs.clientHeight;
@@ -480,17 +492,21 @@ function drawDrawingPanel() {
   const opts = { size: w, thinning: 0.4, smoothing: 0.55, streamline: 0.5 };
   const inkColor = getInk();
 
-  for (const path of state.paths) {
-    const sampled = samplePath(path, 12);
-    if (sampled.length < 2) continue;
-    const flat = sampled.map(p => [p.x, p.y, 0.5]);
-    const outline = getStroke(flat, { ...opts, last: true });
-    fillPolygon(dctx, outline, inkColor);
-  }
-
+  // Live drawing in progress: render the raw incoming points so PF's
+  // velocity simulation drives the visible widths in real time.
   if (rawLiveStroke && rawLiveStroke.length >= 1) {
     const flat = rawLiveStroke.map(p => [p.x, p.y, p.pressure]);
     const outline = getStroke(flat, { ...opts, last: !activeDrag });
+    fillPolygon(dctx, outline, inkColor);
+  } else if (rawPath && rawPath.length >= 2) {
+    // After pointerup: render the stored rawPath (PF-adjusted pressures)
+    // so post-stroke view keeps the same widths the user saw drawn.
+    // We don't sample the bezier here because uniform t-step sampling
+    // would erase the velocity information PF needs.
+    const flat = rawPath.map(p => [p.x, p.y, p.pressure]);
+    const outline = getStroke(flat, {
+      ...opts, simulatePressure: false, last: true,
+    });
     fillPolygon(dctx, outline, inkColor);
   }
 
@@ -644,7 +660,12 @@ window.addEventListener('pointerup', () => {
   activeDrag = null;
   if (drag.kind === 'draw') {
     if (rawLiveStroke && rawLiveStroke.length >= 2) {
-      rawPath = rawLiveStroke.slice();
+      // Run the raw points through PF's velocity-based pressure
+      // simulation so the stored rawPath has the same width variation
+      // the user just saw being drawn. Mouse input arrives with a
+      // flat 0.5 pressure; this step gives faster sections lower
+      // pressure → thinner strokes in both drawing panel and bake.
+      rawPath = simulatePressureFor(rawLiveStroke, +strokeWIn.value);
       smoothLevel = 1.5;
       const path = polylineToBezier(rdpSimplify(rawPath, smoothLevel));
       if (path) state.paths = [path];
