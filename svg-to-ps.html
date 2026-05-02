@@ -105,48 +105,109 @@
   footer a { color: var(--ink); }
 
   /* ─── Playlist ───────────────────────────────────────────────── */
-  .playlist { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
-  .playlist-item {
-    display: flex; align-items: center; gap: 10px;
-    padding: 6px 8px; background: #fafaf6;
-    border: .5px solid var(--rule); border-radius: 6px;
+  .palette-subtitle { color: var(--muted); font-size: 12px;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    margin: -4px 0 12px; }
+  .playlist { display: flex; flex-direction: column; gap: 8px; }
+
+  /* Row uses grid-template-rows to animate the drawer open/close. */
+  .pal-row {
+    display: grid; grid-template-rows: auto 0fr;
+    background: #fafaf6;
+    border: .5px solid var(--rule); border-radius: 8px;
     font: 12px ui-sans-serif, system-ui, sans-serif;
     cursor: default;
+    transition: grid-template-rows 200ms ease,
+                background-color 150ms ease,
+                border-color 150ms ease;
+    overflow: hidden;
   }
-  .playlist-item.active { border-color: var(--accent); background: #eef4ff; }
-  .playlist-item.playing::before {
-    content: '▶'; color: var(--accent); margin-right: 4px; font-size: 10px;
+  .pal-row.open { grid-template-rows: auto 1fr;
+    border-color: var(--accent); background: #eef4ff; }
+  .pal-row.dragging { opacity: .35; }
+  .pal-row.drag-over { border-color: var(--accent); border-style: dashed; }
+
+  .pal-row-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; min-width: 0;
   }
-  .playlist-item.dragging { opacity: .35; }
-  .playlist-item.drag-over { border-color: var(--accent); border-style: dashed; }
-  .playlist-item .grip {
+  .pal-row-head:hover { background: rgba(0,0,0,.025); }
+  .pal-row.open .pal-row-head:hover { background: transparent; }
+
+  .pal-row .play-marker {
+    color: var(--accent); font-size: 10px;
+    width: 10px; opacity: 0; flex-shrink: 0;
+  }
+  .pal-row.playing .play-marker { opacity: 1; }
+  .pal-row .grip {
     cursor: grab; color: var(--muted);
     user-select: none; font-family: ui-monospace, monospace; font-size: 14px;
+    flex-shrink: 0;
   }
-  .playlist-item .name {
+  .pal-row .swatch {
     flex: 1; min-width: 0;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    height: 22px; border-radius: 4px;
+    display: block;
   }
-  .playlist-item canvas {
-    width: 140px; height: 18px; border-radius: 3px; flex-shrink: 0;
+  .pal-row .row-field {
+    display: inline-flex; align-items: center; gap: 4px;
+    color: var(--muted); flex-shrink: 0;
   }
-  .playlist-item .rowlabel {
-    color: var(--muted); font-size: 10px;
-    text-transform: uppercase; letter-spacing: .08em;
-  }
-  .playlist-item .cycles, .playlist-item .speed {
-    width: 3em; padding: 2px 4px;
+  .pal-row .row-field input {
+    width: 3.2em; padding: 2px 4px;
     font: 11px ui-sans-serif, system-ui, sans-serif;
     background: #fafaf6; color: var(--ink);
     border: .5px solid var(--rule); border-radius: 4px;
   }
-  .playlist-item .delete {
-    background: transparent; border: 0; padding: 2px 6px;
-    color: var(--muted); font-size: 14px; line-height: 1;
+
+  .pal-row-drawer { overflow: hidden; min-height: 0; }
+  .pal-row-drawer-inner {
+    padding: 12px 12px 14px; display: flex; flex-direction: column; gap: 12px;
+    border-top: 1px dashed var(--accent); margin: 0 10px;
   }
-  .playlist-item .delete:hover { color: var(--ink); }
-  .mode-row { font-size: 11px; color: var(--muted); }
-  .mode-row label { display: inline-flex; align-items: center; gap: 4px; }
+  .drawer-row {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .preset-name {
+    flex: 1 1 8em; min-width: 0;
+    padding: 5px 9px;
+    font: 12px ui-sans-serif, system-ui, sans-serif;
+    background: #fafaf6; color: var(--ink);
+    border: .5px solid var(--rule); border-radius: 6px;
+  }
+  .preset-select {
+    padding: 5px 9px;
+    font: 12px ui-sans-serif, system-ui, sans-serif;
+    background: #fafaf6; color: var(--ink);
+    border: .5px solid var(--rule); border-radius: 6px;
+  }
+  .drawer-ramp {
+    display: block; width: 100%; height: 78px;
+    background: #fafaf6; border-radius: 6px;
+    user-select: none; -webkit-user-select: none; touch-action: none;
+  }
+  .drawer-ramp-row { display: flex; flex-direction: column; gap: 0; }
+  .stop-row .color-square {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--muted);
+  }
+  .stop-row input[type=color] {
+    width: 30px; height: 24px; padding: 0;
+    border: .5px solid var(--rule); border-radius: 4px;
+    background: transparent;
+  }
+  .stop-helper { color: var(--muted); font-style: italic; font-size: 11px; }
+  .stop-row .spacer { flex: 1; }
+  .stop-row .remove-palette {
+    background: transparent; color: #c8462b;
+    border: .5px solid #c8462b;
+  }
+  .stop-row .remove-palette:hover { background: rgba(200,70,43,.08); }
+
+  .add-palette-row { display: flex; justify-content: center; margin-top: 12px; }
+  .add-palette {
+    border-style: dashed !important; padding: 8px 16px;
+  }
 
   @media (max-width: 800px) {
     .grid {
@@ -177,11 +238,14 @@
       background: #15151a; color: var(--ink);
       border-color: rgba(255,255,255,.12);
     }
-    .playlist-item { background: #15151a; }
-    .playlist-item.active { border-color: var(--accent); background: #1c2540; }
-    .playlist-item .cycles, .playlist-item .speed {
-      background: #0e0e12; color: var(--ink);
-    }
+    .pal-row { background: #15151a; }
+    .pal-row.open { border-color: var(--accent); background: #1c2540; }
+    .pal-row-head:hover { background: rgba(255,255,255,.04); }
+    .pal-row .row-field input,
+    .preset-name, .preset-select { background: #0e0e12; color: var(--ink); }
+    .drawer-ramp { background: #0e0e12; }
+    .stop-row .remove-palette { color: #ff7b58; border-color: #ff7b58; }
+    .stop-row .remove-palette:hover { background: rgba(255,123,88,.1); }
   }
 </style>
 </head>
@@ -242,47 +306,11 @@
 
   <section class="panel palette">
     <div class="panel-tag">Step 3 · Color</div>
-    <h2>Build the palette.</h2>
-    <div class="row" style="margin-top: 0">
-      <label>Seed
-        <select id="seed"></select>
-      </label>
-      <button class="ghost" id="reset">Reset to seed</button>
-      <span class="meta" id="ramp-meta"></span>
-    </div>
-    <canvas id="ramp" style="margin-top: 12px"></canvas>
-    <div class="row">
-      <label>Color
-        <input type="color" id="stopColor" />
-      </label>
-      <label>Position
-        <input type="number" id="stopT" min="0" max="1" step="0.01" style="width: 5em" />
-      </label>
-      <button id="addStop">+ add stop</button>
-      <button class="ghost" id="removeStop">&times; remove</button>
-    </div>
-    <div class="row">
-      <label>Speed
-        <input id="speed" type="range" min="0" max="200" value="60" />
-        <span id="speed-val">60</span>
-      </label>
-    </div>
-    <div class="row" style="margin-top: 14px">
-      <label>Seed name
-        <input type="text" id="seedName" placeholder="my custom seed" style="width: 12em" />
-      </label>
-      <button id="saveSeed">Save seed</button>
-      <span class="meta" id="seed-save-meta"></span>
-    </div>
+    <h2>Palette playlist.</h2>
+    <p class="palette-subtitle"><span id="palette-count">1</span> palette<span id="palette-count-s">s</span></p>
     <div id="playlist" class="playlist"></div>
-    <div class="row" id="playlistAddRow" style="justify-content: center; margin-top: 6px">
-      <button class="ghost" id="addInline" title="Add a copy of the current palette to the playlist">+ Add palette</button>
-    </div>
-    <div id="modeRow" class="row mode-row" hidden>
-      <span>Mode</span>
-      <label><input type="radio" name="mode" value="sequential" checked /> Sequential</label>
-      <label><input type="radio" name="mode" value="random" /> Random</label>
-      <label><input type="radio" name="mode" value="surprise" /> Surprise me</label>
+    <div class="add-palette-row">
+      <button class="ghost add-palette" id="addInline" title="Add a copy of the current palette">+ Add palette</button>
     </div>
   </section>
 
@@ -308,7 +336,6 @@ let liveStroke = null;
 let rawLiveStroke = null;
 let smoothLevel = 1.5;
 let currentRamp = null;
-let stops = [];
 let selectedStop = -1;
 
 let activeDrag = null;
@@ -331,22 +358,14 @@ let cycleRaf = 0;
 // ─── DOM refs ────────────────────────────────────────────────────────────
 const drawCvs    = $('draw');
 const bezCvs     = $('bezier');
-const rampCvs    = $('ramp');
 const outCvs     = $('out');
 const strokeWIn  = $('strokeW');
 const strokeWVal = $('strokeW-val');
-const speedIn    = $('speed');
-const speedVal   = $('speed-val');
-const seedSel    = $('seed');
-const stopColorIn= $('stopColor');
-const stopTIn    = $('stopT');
 const bakeMeta   = $('bake-meta');
 const bezMeta    = $('bez-meta');
-const rampMeta   = $('ramp-meta');
 
 const dctx = drawCvs.getContext('2d');
 const bctx = bezCvs.getContext('2d');
-const rctx = rampCvs.getContext('2d');
 
 // ─── Geometry ────────────────────────────────────────────────────────────
 function eventToCanvasPoint(e, canvas) {
@@ -764,17 +783,8 @@ function splitBezierAt(path, segIdx, t) {
   });
 }
 
-rampCvs.addEventListener('pointerdown', (e) => {
-  e.preventDefault();
-  const r = rampCvs.getBoundingClientRect();
-  const hit = rampHandleHitTest(e.clientX - r.left, e.clientY - r.top);
-  if (hit >= 0) {
-    selectedStop = hit;
-    activeDrag = { kind: 'ramp', stopIdx: hit };
-    drawRampCanvas();
-    updateStopUI();
-  }
-});
+// Drawer ramp pointerdown is wired up in renderPlaylist (the canvases
+// are dynamic, one per drawer row).
 
 window.addEventListener('pointermove', (e) => {
   if (!activeDrag) return;
@@ -809,10 +819,14 @@ window.addEventListener('pointermove', (e) => {
     scheduleRender();
     scheduleBake();
   } else if (activeDrag.kind === 'ramp') {
-    const r = rampCvs.getBoundingClientRect();
-    const cssW = rampCvs.clientWidth || 1;
+    const row = $('playlist').children[activeDrag.idx];
+    if (!row) return;
+    const cvs = row.querySelector('.drawer-ramp');
+    if (!cvs) return;
+    const r = cvs.getBoundingClientRect();
+    const cssW = cvs.clientWidth || 1;
     const t = Math.max(0, Math.min(1, 1 - (e.clientX - r.left) / cssW));
-    stops[activeDrag.stopIdx].t = t;
+    playlist[activeDrag.idx].stops[activeDrag.stopIdx].t = t;
     rebuildRamp();
   }
 });
@@ -899,166 +913,292 @@ function rebake() {
   if (engine) engine.stop();
 
   engine = new window.HyperDrive.CycleEngine(outCvs, baked);
-  engine.setPalette(currentRamp);
+  // First-bake palette: prefer the displayed playlist entry; fall back
+  // to whatever the editor's currentRamp is (which the playlist init
+  // also primes from playlist[0]).
+  const seedRamp = (displayedIdx >= 0 && playlist[displayedIdx])
+    ? window.PshiftPng.buildRamp(playlist[displayedIdx].stops)
+    : currentRamp;
+  engine.setPalette(seedRamp);
   if (prev) {
     engine.offset = prev.offset;
     engine.setSpeed(prev.speed);
     engine.setReverse(prev.reverse);
     if (prev.running) engine.start();
   } else {
-    engine.setSpeed(speedMagnitude());
-    engine.setReverse(speedReverse());
+    const seedEntry = (displayedIdx >= 0) ? playlist[displayedIdx] : null;
+    engine.setSpeed(Math.abs(seedEntry?.speed ?? 60));
+    engine.setReverse(true);
     engine.start();
   }
   bakeMeta.textContent = `${baked.width}×${baked.height} · ${(baked.indices.byteLength/1024).toFixed(1)} KB`;
 }
 
-// ─── Palette stop editor ─────────────────────────────────────────────────
-const SEEDS_KEY = 'pshift.seeds';
-function loadCustomSeeds() {
-  try { return JSON.parse(localStorage.getItem(SEEDS_KEY) || '{}'); }
+// ─── Palette presets ─────────────────────────────────────────────────────
+// Saved presets ("seeds" in the legacy storage key) live in localStorage
+// and merge with HyperDrive.PALETTES in every drawer's preset dropdown.
+const PRESETS_KEY = 'pshift.seeds';
+function loadCustomPresets() {
+  try { return JSON.parse(localStorage.getItem(PRESETS_KEY) || '{}'); }
   catch { return {}; }
 }
-function saveCustomSeeds(map) {
-  localStorage.setItem(SEEDS_KEY, JSON.stringify(map));
-}
-function refreshSeedDropdown() {
-  const prev = seedSel.value;
-  seedSel.innerHTML = '';
-  for (const name of Object.keys(window.HyperDrive.PALETTES)) {
-    const o = document.createElement('option');
-    o.value = name; o.textContent = name;
-    seedSel.appendChild(o);
-  }
-  const customs = loadCustomSeeds();
-  const names = Object.keys(customs);
-  if (names.length) {
-    const sep = document.createElement('option');
-    sep.disabled = true; sep.textContent = '── saved ──';
-    seedSel.appendChild(sep);
-    for (const n of names) {
-      const o = document.createElement('option');
-      o.value = 'custom:' + n; o.textContent = n;
-      seedSel.appendChild(o);
-    }
-  }
-  if (prev && Array.from(seedSel.options).some(o => o.value === prev)) seedSel.value = prev;
+function saveCustomPresets(map) {
+  localStorage.setItem(PRESETS_KEY, JSON.stringify(map));
 }
 
-function seedFromPreset(name) {
-  // Custom seed: stops are stored verbatim.
+// Build a fresh stops array from a preset name.
+//   "rainbow" → samples 12 perceptually-spaced stops along PALETTES.rainbow
+//   "custom:foo" → returns the verbatim saved stops
+function buildStopsFromPreset(name) {
   if (name && name.startsWith('custom:')) {
-    const customs = loadCustomSeeds();
+    const customs = loadCustomPresets();
     const stored = customs[name.slice(7)];
-    if (!stored) return;
-    setStops(stored.map(s => ({ t: s.t, color: s.color.slice() })));
-    selectedStop = 0;
-    rebuildRamp();
-    return;
+    if (!stored) return null;
+    return stored.map(s => ({ t: s.t, color: s.color.slice() }));
   }
-  const ramp = window.HyperDrive.PALETTES[name]();
-  const N = ramp.length;
+  const ramp = window.HyperDrive.PALETTES[name];
+  if (!ramp) return null;
+  const r = ramp();
+  const N = r.length;
   const cum = new Array(N);
   cum[0] = 0;
   for (let i = 1; i < N; i++) {
-    const dr = ramp[i][0] - ramp[i-1][0];
-    const dg = ramp[i][1] - ramp[i-1][1];
-    const db = ramp[i][2] - ramp[i-1][2];
+    const dr = r[i][0] - r[i-1][0];
+    const dg = r[i][1] - r[i-1][1];
+    const db = r[i][2] - r[i-1][2];
     cum[i] = cum[i-1] + Math.sqrt(dr*dr + dg*dg + db*db);
   }
   const total = cum[N-1];
   const target = 12;
-  const newStops = [];
-  newStops.push({ t: 0, color: ramp[0].slice() });
+  const out = [{ t: 0, color: r[0].slice() }];
   if (total > 0) {
     for (let k = 1; k < target - 1; k++) {
       const goal = (k / (target - 1)) * total;
       let i = 0;
       while (i < N - 1 && cum[i] < goal) i++;
       const t = i / (N - 1);
-      const lastT = newStops[newStops.length - 1].t;
+      const lastT = out[out.length - 1].t;
       if (t - lastT < 0.003) continue;
-      newStops.push({ t, color: ramp[i].slice() });
+      out.push({ t, color: r[i].slice() });
     }
   }
-  newStops.push({ t: 1, color: ramp[N-1].slice() });
-  setStops(newStops);
-  selectedStop = 0;
-  rebuildRamp();
+  out.push({ t: 1, color: r[N-1].slice() });
+  return out;
 }
 
-function setStops(newStops) {
-  stops = newStops;
-  if (activeIdx >= 0 && playlist[activeIdx]) playlist[activeIdx].stops = stops;
+function rgbToHex([r, g, b]) {
+  const h = (v) => v.toString(16).padStart(2, '0');
+  return '#' + h(r) + h(g) + h(b);
+}
+function hexToRgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
-function rebuildRamp() {
-  currentRamp = window.PshiftPng.buildRamp(stops);
-  drawRampCanvas();
-  // Push live edits to the engine when the editor's active palette is
-  // currently displayed. During a transition this updates the outgoing
-  // basePalette — the new colors keep flowing out the tail until p2
-  // fully sweeps in, so the user sees their tweaks reflected.
-  if (engine && activeIdx === displayedIdx) {
-    engine.replacePalette(currentRamp);
+// Paint a flat gradient swatch (used for the collapsed-row swatch and
+// elsewhere where we just need the gradient with no stop markers).
+function drawGradient(canvas, palStops) {
+  const cssW = canvas.clientWidth || 280;
+  const cssH = canvas.clientHeight || 22;
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const ramp = window.PshiftPng.buildRamp(palStops);
+  for (let x = 0; x < cssW; x++) {
+    const t = 1 - x / Math.max(1, cssW - 1);
+    const idx = Math.min(254, Math.max(0, Math.round(t * 254)));
+    const [r, g, b] = ramp[idx];
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.fillRect(x, 0, 1, cssH);
   }
-  updateStopUI();
-  updateActivePlaylistRamp();
-  rampMeta.textContent = `${stops.length} stops`;
+}
+
+// Paint the drawer's tall ramp + stop circles.
+function drawDrawerRampOnto(canvas, palStops) {
+  const cssW = canvas.clientWidth || 600;
+  const cssH = canvas.clientHeight || 78;
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const barH = cssH - 26;
+  const ramp = window.PshiftPng.buildRamp(palStops);
+  for (let x = 0; x < cssW; x++) {
+    const t = 1 - x / Math.max(1, cssW - 1);
+    const idx = Math.min(254, Math.max(0, Math.round(t * 254)));
+    const [r, g, b] = ramp[idx];
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.fillRect(x, 0, 1, barH);
+  }
+  ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0.5, 0.5, cssW - 1, barH - 1);
+
+  const handleY = barH + 11;
+  const sortedIdx = palStops
+    .map((s, i) => ({ i, t: s.t }))
+    .sort((a, b) => a.t - b.t)
+    .map(o => o.i);
+  for (const i of sortedIdx) {
+    const s = palStops[i];
+    const x = Math.max(7, Math.min(cssW - 7, (1 - s.t) * cssW));
+    const sel = i === selectedStop;
+    ctx.fillStyle = `rgb(${s.color[0]},${s.color[1]},${s.color[2]})`;
+    ctx.strokeStyle = sel ? '#1f7bff' : 'rgba(0,0,0,0.7)';
+    ctx.lineWidth = sel ? 2 : 1;
+    ctx.beginPath();
+    ctx.arc(x, handleY, sel ? 8 : 5.5, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+  }
+}
+
+function rampHandleHitTest(canvas, x, palStops) {
+  const cssW = canvas.clientWidth;
+  let best = -1, bestD = 14;
+  for (let i = 0; i < palStops.length; i++) {
+    const hx = Math.max(7, Math.min(cssW - 7, (1 - palStops[i].t) * cssW));
+    const d = Math.abs(hx - x);
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return best;
+}
+
+// Open-drawer-only helpers — only one drawer is open at a time, so the
+// canvas/inputs/etc all bind to playlist[activeIdx].
+function activeRow() {
+  return activeIdx >= 0 ? $('playlist').children[activeIdx] : null;
+}
+function drawDrawerRamp() {
+  const row = activeRow();
+  if (!row) return;
+  const cvs = row.querySelector('.drawer-ramp');
+  if (cvs) drawDrawerRampOnto(cvs, playlist[activeIdx].stops);
+}
+function drawRowSwatch(idx) {
+  if (idx < 0 || idx >= playlist.length) return;
+  const row = $('playlist').children[idx];
+  if (!row) return;
+  const cvs = row.querySelector('.swatch');
+  if (cvs) drawGradient(cvs, playlist[idx].stops);
+}
+function syncStopColorInput() {
+  const row = activeRow();
+  if (!row) return;
+  const inp = row.querySelector('.stop-color');
+  const s = playlist[activeIdx].stops[selectedStop];
+  if (inp && s) inp.value = rgbToHex(s.color);
+}
+function syncRemoveStopBtn() {
+  const row = activeRow();
+  if (!row) return;
+  const btn = row.querySelector('.remove-stop');
+  if (btn) btn.disabled = playlist[activeIdx].stops.length <= 2;
+}
+
+// Recompute currentRamp and push to engine + UI.
+function rebuildRamp() {
+  if (activeIdx < 0) return;
+  const palStops = playlist[activeIdx].stops;
+  currentRamp = window.PshiftPng.buildRamp(palStops);
+  // Live edits on the displayed palette flow into the engine so the
+  // user sees their tweaks reflected immediately.
+  if (engine && activeIdx === displayedIdx) engine.replacePalette(currentRamp);
+  drawDrawerRamp();
+  drawRowSwatch(activeIdx);
+  syncStopColorInput();
+  syncRemoveStopBtn();
 }
 
 // ─── Playlist ────────────────────────────────────────────────────────────
-// Click-to-load: also jumps the live engine to the clicked palette via
-// setPalette (hard cut, resets baseStartOff so cycle counting restarts).
-// Auto-advance never touches activeIdx — only setActiveIdx does, called
-// only from user clicks and Add.
-function setActiveIdx(idx) {
+// activeIdx is the row whose drawer is open (-1 = nothing open).
+// displayedIdx is the engine's currently-playing row (independent).
+// Clicking a row only opens its drawer; it does NOT switch playback.
+function setActive(idx) {
+  if (idx === activeIdx) {
+    closeDrawer();
+    return;
+  }
   if (idx < 0 || idx >= playlist.length) return;
   activeIdx = idx;
-  displayedIdx = idx;
-  const entry = playlist[idx];
-  stops = entry.stops;
-  selectedStop = Math.min(Math.max(0, selectedStop), stops.length - 1);
-  speedIn.value = entry.speed;
-  updateSpeedLabel();
-  pendingNextIdx = -1;
-  targetCycles = entry.cycles || 1;
-  if (engine) {
-    engine.setPalette(window.PshiftPng.buildRamp(entry.stops));
-    engine.setSpeed(speedMagnitude());
+  selectedStop = 0;
+  currentRamp = window.PshiftPng.buildRamp(playlist[idx].stops);
+  applyOpenStateOnly();
+  drawDrawerRamp();
+  syncStopColorInput();
+  syncRemoveStopBtn();
+}
+
+function closeDrawer() {
+  activeIdx = -1;
+  applyOpenStateOnly();
+}
+
+// Toggle the .open class without rebuilding DOM, so input focus and
+// dropdown selection survive open/close transitions.
+function applyOpenStateOnly() {
+  const root = $('playlist');
+  if (!root) return;
+  for (const row of root.children) {
+    row.classList.toggle('open', +row.dataset.idx === activeIdx);
   }
-  currentRamp = window.PshiftPng.buildRamp(stops);
-  drawRampCanvas();
-  updateStopUI();
-  rampMeta.textContent = `${stops.length} stops`;
-  renderPlaylist();
+}
+
+function updatePlayingMarker() {
+  const root = $('playlist');
+  if (!root) return;
+  for (const row of root.children) {
+    row.classList.toggle('playing', +row.dataset.idx === displayedIdx);
+  }
+}
+
+function updatePaletteCount() {
+  const n = playlist.length;
+  $('palette-count').textContent = String(n);
+  $('palette-count-s').textContent = n === 1 ? '' : 's';
 }
 
 function addToPlaylist() {
-  // Adds a copy of the current palette to the playlist as a new entry,
-  // selects it. Playlist entries don't have names.
-  const copy = stops.map(s => ({ t: s.t, color: s.color.slice() }));
+  // Adds a copy of the active palette (or the first one if nothing's
+  // selected) and opens its drawer.
+  const src = playlist[activeIdx >= 0 ? activeIdx : 0] || null;
+  const copy = src
+    ? src.stops.map(s => ({ t: s.t, color: s.color.slice() }))
+    : [];
   playlist.push({
     stops: copy,
-    speed: +speedIn.value,
+    speed: src ? src.speed : 60,
     cycles: 1,
   });
-  setActiveIdx(playlist.length - 1);
+  renderPlaylist();
+  setActive(playlist.length - 1);
+}
+
+function duplicatePalette(idx) {
+  if (idx < 0 || idx >= playlist.length) return;
+  const src = playlist[idx];
+  const copy = {
+    stops: src.stops.map(s => ({ t: s.t, color: s.color.slice() })),
+    speed: src.speed,
+    cycles: src.cycles,
+    presetName: src.presetName,
+  };
+  playlist.splice(idx + 1, 0, copy);
+  if (displayedIdx > idx) displayedIdx++;
+  renderPlaylist();
+  setActive(idx + 1);
 }
 
 function removePlaylistItem(idx) {
   if (idx < 0 || idx >= playlist.length) return;
-  if (playlist.length <= 1) return;  // never empty
+  if (playlist.length <= 1) return;
   const wasActive = idx === activeIdx;
   const wasDisplayed = idx === displayedIdx;
   playlist.splice(idx, 1);
-  if (wasActive) {
-    setActiveIdx(Math.min(idx, playlist.length - 1));
-    return;
-  }
-  if (idx < activeIdx) activeIdx--;
+  if (wasActive) activeIdx = -1;
+  else if (idx < activeIdx) activeIdx--;
   if (wasDisplayed) {
-    displayedIdx = activeIdx;
+    displayedIdx = Math.min(idx, playlist.length - 1);
     pendingNextIdx = -1;
     const entry = playlist[displayedIdx];
     if (engine && entry) {
@@ -1077,152 +1217,16 @@ function reorderPlaylist(from, to) {
   if (from >= playlist.length || to >= playlist.length) return;
   const moved = playlist.splice(from, 1)[0];
   playlist.splice(to, 0, moved);
-  if (activeIdx === from) activeIdx = to;
-  else if (from < activeIdx && activeIdx <= to) activeIdx--;
-  else if (to <= activeIdx && activeIdx < from) activeIdx++;
+  // Apply the same shift to activeIdx and displayedIdx.
+  for (const ref of ['activeIdx', 'displayedIdx']) {
+    const cur = ref === 'activeIdx' ? activeIdx : displayedIdx;
+    let next = cur;
+    if (cur === from) next = to;
+    else if (from < cur && cur <= to) next = cur - 1;
+    else if (to <= cur && cur < from) next = cur + 1;
+    if (ref === 'activeIdx') activeIdx = next; else displayedIdx = next;
+  }
   renderPlaylist();
-}
-
-function drawMiniRamp(canvas, palStops) {
-  canvas.width = 280;  // 2× CSS for crispness
-  canvas.height = 36;
-  const ctx = canvas.getContext('2d');
-  const ramp = window.PshiftPng.buildRamp(palStops);
-  for (let x = 0; x < canvas.width; x++) {
-    const t = 1 - x / (canvas.width - 1);  // flipped to match the editor bar
-    const idx = Math.min(254, Math.round(t * 254));
-    const [r, g, b] = ramp[idx];
-    ctx.fillStyle = `rgb(${r},${g},${b})`;
-    ctx.fillRect(x, 0, 1, canvas.height);
-  }
-}
-
-function updateActivePlaylistRamp() {
-  const root = $('playlist');
-  if (!root) return;
-  for (const item of root.children) {
-    if (+item.dataset.idx === activeIdx) {
-      const cvs = item.querySelector('canvas');
-      if (cvs) drawMiniRamp(cvs, stops);
-      break;
-    }
-  }
-}
-
-function updatePlayingMarker() {
-  const root = $('playlist');
-  if (!root) return;
-  for (const item of root.children) {
-    const idx = +item.dataset.idx;
-    item.classList.toggle('playing', idx === displayedIdx);
-  }
-}
-
-function renderPlaylist() {
-  const root = $('playlist');
-  root.innerHTML = '';
-  $('modeRow').hidden = playlist.length < 2;
-  if (playlist.length === 0) return;
-
-  for (let i = 0; i < playlist.length; i++) {
-    const entry = playlist[i];
-    const item = document.createElement('div');
-    item.className = 'playlist-item'
-      + (i === activeIdx ? ' active' : '')
-      + (i === displayedIdx ? ' playing' : '');
-    item.draggable = true;
-    item.dataset.idx = String(i);
-
-    const grip = document.createElement('span');
-    grip.className = 'grip';
-    grip.textContent = '☰';
-    item.appendChild(grip);
-
-    const cvs = document.createElement('canvas');
-    drawMiniRamp(cvs, entry.stops);
-    item.appendChild(cvs);
-
-    const cyclesLabel = document.createElement('span');
-    cyclesLabel.className = 'rowlabel';
-    cyclesLabel.textContent = 'cycles';
-    item.appendChild(cyclesLabel);
-
-    const cycles = document.createElement('input');
-    cycles.type = 'number';
-    cycles.min = '1';
-    cycles.max = '99';
-    cycles.value = entry.cycles;
-    cycles.className = 'cycles';
-    cycles.title = 'cycles before next palette';
-    cycles.addEventListener('change', () => {
-      const v = Math.max(1, Math.min(99, +cycles.value || 1));
-      cycles.value = v;
-      entry.cycles = v;
-      if (i === displayedIdx) targetCycles = v;
-    });
-    cycles.addEventListener('click', (e) => e.stopPropagation());
-    item.appendChild(cycles);
-
-    const speedLabel = document.createElement('span');
-    speedLabel.className = 'rowlabel';
-    speedLabel.textContent = 'speed';
-    item.appendChild(speedLabel);
-
-    const speedRow = document.createElement('input');
-    speedRow.type = 'number';
-    speedRow.min = '0';
-    speedRow.max = '200';
-    speedRow.value = entry.speed;
-    speedRow.className = 'speed';
-    speedRow.title = 'palette speed';
-    speedRow.addEventListener('change', () => {
-      const v = Math.max(0, Math.min(200, +speedRow.value || 0));
-      speedRow.value = v;
-      entry.speed = v;
-      if (i === activeIdx) {
-        speedIn.value = v;
-        updateSpeedLabel();
-      }
-      if (i === displayedIdx && engine && engine.nextPalette === null) {
-        engine.setSpeed(v);
-      }
-    });
-    speedRow.addEventListener('click', (e) => e.stopPropagation());
-    item.appendChild(speedRow);
-
-    const del = document.createElement('button');
-    del.className = 'delete';
-    del.textContent = '×';
-    del.title = 'remove';
-    del.disabled = playlist.length === 1;
-    del.addEventListener('click', (e) => {
-      e.stopPropagation();
-      removePlaylistItem(i);
-    });
-    item.appendChild(del);
-
-    item.addEventListener('click', () => setActiveIdx(i));
-
-    item.addEventListener('dragstart', (e) => {
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', String(i));
-      item.classList.add('dragging');
-    });
-    item.addEventListener('dragend', () => item.classList.remove('dragging'));
-    item.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      item.classList.add('drag-over');
-    });
-    item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
-    item.addEventListener('drop', (e) => {
-      e.preventDefault();
-      item.classList.remove('drag-over');
-      const from = +e.dataTransfer.getData('text/plain');
-      reorderPlaylist(from, i);
-    });
-
-    root.appendChild(item);
-  }
 }
 
 function pickNextIdx() {
@@ -1238,14 +1242,12 @@ function startCycleWatcher() {
   function tick() {
     if (engine && engine.running && playlist.length >= 2 && displayedIdx >= 0) {
       if (engine.nextPalette !== null) {
-        // Mid-transition: tween speed across the 254-tick spread.
         const tFrac = Math.max(0, Math.min(1,
           (engine.offset - engine.nextStartOff) / 254));
         const s1 = playlist[displayedIdx]?.speed ?? 0;
         const s2 = playlist[pendingNextIdx]?.speed ?? s1;
         engine.setSpeed(Math.abs(s1 + (s2 - s1) * tFrac));
       } else if (pendingNextIdx >= 0) {
-        // Engine just promoted — finalize.
         displayedIdx = pendingNextIdx;
         pendingNextIdx = -1;
         const entry = playlist[displayedIdx];
@@ -1255,7 +1257,6 @@ function startCycleWatcher() {
         engine.setSpeed(Math.abs(entry.speed));
         updatePlayingMarker();
       } else {
-        // Steady-state: trigger next transition once cycles_played ≥ target.
         const cyclesPlayed = (engine.offset - engine.baseStartOff) / 255;
         if (cyclesPlayed >= targetCycles) {
           const nextIdx = pickNextIdx();
@@ -1272,85 +1273,308 @@ function startCycleWatcher() {
   cycleRaf = requestAnimationFrame(tick);
 }
 
-function drawRampCanvas() {
-  const cssW = rampCvs.clientWidth || 720;
-  const cssH = 64;
-  rampCvs.width = cssW;
-  rampCvs.height = cssH;
-  const barH = cssH - 22;
-  // Flipped: ramp position 0 displays on the right, 1 on the left.
-  // Matches the cycling preview's spatial direction along the path.
-  for (let x = 0; x < cssW; x++) {
-    const t = 1 - x / Math.max(1, cssW - 1);
-    const idx = Math.min(254, Math.max(0, Math.round(t * 254)));
-    const [r, g, b] = currentRamp[idx];
-    rctx.fillStyle = `rgb(${r},${g},${b})`;
-    rctx.fillRect(x, 0, 1, barH);
+function buildPresetOptions(sel, currentName) {
+  sel.innerHTML = '';
+  for (const name of Object.keys(window.HyperDrive.PALETTES)) {
+    const o = document.createElement('option');
+    o.value = name; o.textContent = name;
+    sel.appendChild(o);
   }
-  rctx.strokeStyle = 'rgba(0,0,0,0.18)';
-  rctx.lineWidth = 1;
-  rctx.strokeRect(0.5, 0.5, cssW - 1, barH - 1);
-
-  const handleY = barH + 9;
-  const sortedIdx = stops
-    .map((s, i) => ({ i, t: s.t }))
-    .sort((a, b) => a.t - b.t)
-    .map(o => o.i);
-  for (const i of sortedIdx) {
-    const s = stops[i];
-    const x = Math.max(6, Math.min(cssW - 6, (1 - s.t) * cssW));
-    const sel = i === selectedStop;
-    rctx.fillStyle = `rgb(${s.color[0]},${s.color[1]},${s.color[2]})`;
-    rctx.strokeStyle = sel ? '#1f7bff' : 'rgba(0,0,0,0.7)';
-    rctx.lineWidth = sel ? 2 : 1;
-    rctx.beginPath();
-    rctx.arc(x, handleY, sel ? 7 : 5, 0, Math.PI * 2);
-    rctx.fill(); rctx.stroke();
+  const customs = loadCustomPresets();
+  const customNames = Object.keys(customs);
+  if (customNames.length) {
+    const sep = document.createElement('option');
+    sep.disabled = true; sep.textContent = '── saved ──';
+    sel.appendChild(sep);
+    for (const n of customNames) {
+      const o = document.createElement('option');
+      o.value = 'custom:' + n; o.textContent = n;
+      sel.appendChild(o);
+    }
   }
-}
-
-function rampHandleHitTest(x, y) {
-  const cssW = rampCvs.clientWidth;
-  const cssH = rampCvs.clientHeight;
-  const handleY = (cssH - 22) + 9;
-  let best = -1, bestD = 14;
-  for (let i = 0; i < stops.length; i++) {
-    const hx = Math.max(6, Math.min(cssW - 6, (1 - stops[i].t) * cssW));
-    const d = Math.hypot(hx - x, handleY - y);
-    if (d < bestD) { bestD = d; best = i; }
-  }
-  return best;
-}
-
-function rgbToHex([r, g, b]) {
-  const h = (v) => v.toString(16).padStart(2, '0');
-  return '#' + h(r) + h(g) + h(b);
-}
-function hexToRgb(hex) {
-  const n = parseInt(hex.slice(1), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
-
-function updateStopUI() {
-  if (selectedStop < 0 || !stops[selectedStop]) {
-    stopColorIn.disabled = true;
-    stopTIn.disabled = true;
-    stopColorIn.value = '#000000';
-    stopTIn.value = '';
+  if (currentName && Array.from(sel.options).some(o => o.value === currentName && !o.disabled)) {
+    sel.value = currentName;
   } else {
-    const s = stops[selectedStop];
-    stopColorIn.disabled = false;
-    stopTIn.disabled = false;
-    stopColorIn.value = rgbToHex(s.color);
-    stopTIn.value = s.t.toFixed(3);
+    sel.value = 'rainbow';
   }
-  $('removeStop').disabled = stops.length <= 2 || selectedStop < 0;
 }
 
-// ─── Speed ───────────────────────────────────────────────────────────────
-function speedMagnitude() { return +speedIn.value; }
-function speedReverse() { return true; }
-function updateSpeedLabel() { speedVal.textContent = speedIn.value; }
+function refreshAllPresetDropdowns() {
+  const root = $('playlist');
+  if (!root) return;
+  for (const row of root.children) {
+    const sel = row.querySelector('.preset-select');
+    if (sel) buildPresetOptions(sel, sel.value);
+  }
+}
+
+function renderPlaylist() {
+  const root = $('playlist');
+  root.innerHTML = '';
+  updatePaletteCount();
+  if (playlist.length === 0) return;
+
+  for (let i = 0; i < playlist.length; i++) {
+    const entry = playlist[i];
+    const row = document.createElement('div');
+    row.className = 'pal-row'
+      + (i === activeIdx ? ' open' : '')
+      + (i === displayedIdx ? ' playing' : '');
+    row.draggable = true;
+    row.dataset.idx = String(i);
+
+    // ── Head ─────────────────────────────────────────
+    const head = document.createElement('div');
+    head.className = 'pal-row-head';
+
+    const playMarker = document.createElement('span');
+    playMarker.className = 'play-marker';
+    playMarker.textContent = '▶';
+    head.appendChild(playMarker);
+
+    const grip = document.createElement('span');
+    grip.className = 'grip';
+    grip.textContent = '☰';
+    head.appendChild(grip);
+
+    const swatch = document.createElement('canvas');
+    swatch.className = 'swatch';
+    head.appendChild(swatch);
+
+    const cyclesField = document.createElement('label');
+    cyclesField.className = 'row-field';
+    cyclesField.appendChild(document.createTextNode('cycles '));
+    const cyclesIn = document.createElement('input');
+    cyclesIn.type = 'number'; cyclesIn.min = '1'; cyclesIn.max = '99';
+    cyclesIn.value = entry.cycles;
+    cyclesField.appendChild(cyclesIn);
+    head.appendChild(cyclesField);
+
+    const speedField = document.createElement('label');
+    speedField.className = 'row-field';
+    speedField.appendChild(document.createTextNode('speed '));
+    const rowSpeedIn = document.createElement('input');
+    rowSpeedIn.type = 'number'; rowSpeedIn.min = '0'; rowSpeedIn.max = '200';
+    rowSpeedIn.value = entry.speed;
+    speedField.appendChild(rowSpeedIn);
+    head.appendChild(speedField);
+
+    cyclesIn.addEventListener('change', () => {
+      const v = Math.max(1, Math.min(99, +cyclesIn.value || 1));
+      cyclesIn.value = v;
+      entry.cycles = v;
+      if (i === displayedIdx) targetCycles = v;
+    });
+    cyclesIn.addEventListener('click', (e) => e.stopPropagation());
+    cyclesIn.addEventListener('pointerdown', (e) => e.stopPropagation());
+    rowSpeedIn.addEventListener('change', () => {
+      const v = Math.max(0, Math.min(200, +rowSpeedIn.value || 0));
+      rowSpeedIn.value = v;
+      entry.speed = v;
+      if (i === displayedIdx && engine && engine.nextPalette === null) {
+        engine.setSpeed(v);
+      }
+    });
+    rowSpeedIn.addEventListener('click', (e) => e.stopPropagation());
+    rowSpeedIn.addEventListener('pointerdown', (e) => e.stopPropagation());
+
+    head.addEventListener('click', () => setActive(i));
+
+    row.appendChild(head);
+
+    // ── Drawer ────────────────────────────────────────
+    const drawer = document.createElement('div');
+    drawer.className = 'pal-row-drawer';
+    const inner = document.createElement('div');
+    inner.className = 'pal-row-drawer-inner';
+    drawer.appendChild(inner);
+
+    // Preset row.
+    const presetRow = document.createElement('div');
+    presetRow.className = 'drawer-row preset-row';
+
+    const nameIn = document.createElement('input');
+    nameIn.type = 'text';
+    nameIn.className = 'preset-name';
+    nameIn.placeholder = 'palette name';
+
+    const saveBtn = document.createElement('button');
+    saveBtn.textContent = 'save';
+    saveBtn.disabled = true;
+    nameIn.addEventListener('input', () => {
+      saveBtn.disabled = !nameIn.value.trim();
+    });
+    nameIn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !saveBtn.disabled) {
+        e.preventDefault();
+        saveBtn.click();
+      }
+    });
+
+    const presetSel = document.createElement('select');
+    presetSel.className = 'preset-select';
+    buildPresetOptions(presetSel, entry.presetName || 'rainbow');
+
+    saveBtn.addEventListener('click', () => {
+      const name = nameIn.value.trim();
+      if (!name) return;
+      const customs = loadCustomPresets();
+      customs[name] = playlist[i].stops.map(s => ({ t: s.t, color: s.color.slice() }));
+      saveCustomPresets(customs);
+      nameIn.value = '';
+      saveBtn.disabled = true;
+      refreshAllPresetDropdowns();
+      presetSel.value = 'custom:' + name;
+      playlist[i].presetName = 'custom:' + name;
+    });
+
+    const switchBtn = document.createElement('button');
+    switchBtn.className = 'ghost';
+    switchBtn.textContent = '↻ switch';
+    switchBtn.addEventListener('click', () => {
+      const newStops = buildStopsFromPreset(presetSel.value);
+      if (!newStops) return;
+      playlist[i].stops = newStops;
+      playlist[i].presetName = presetSel.value;
+      if (i === activeIdx) selectedStop = 0;
+      if (engine && i === displayedIdx) {
+        engine.replacePalette(window.PshiftPng.buildRamp(newStops));
+      }
+      drawRowSwatch(i);
+      if (i === activeIdx) {
+        currentRamp = window.PshiftPng.buildRamp(newStops);
+        drawDrawerRamp();
+        syncStopColorInput();
+        syncRemoveStopBtn();
+      }
+    });
+
+    const dupBtn = document.createElement('button');
+    dupBtn.className = 'ghost';
+    dupBtn.textContent = '⎘ duplicate';
+    dupBtn.addEventListener('click', () => duplicatePalette(i));
+
+    presetRow.appendChild(nameIn);
+    presetRow.appendChild(saveBtn);
+    presetRow.appendChild(presetSel);
+    presetRow.appendChild(switchBtn);
+    presetRow.appendChild(dupBtn);
+    inner.appendChild(presetRow);
+
+    // Gradient bar.
+    const ramp = document.createElement('canvas');
+    ramp.className = 'drawer-ramp';
+    inner.appendChild(ramp);
+
+    ramp.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      const r = ramp.getBoundingClientRect();
+      const x = e.clientX - r.left;
+      const y = e.clientY - r.top;
+      const cssH = ramp.clientHeight;
+      const palStops = playlist[i].stops;
+      const hit = rampHandleHitTest(ramp, x, palStops);
+      if (hit >= 0 && y > cssH - 26) {
+        // Drag an existing stop.
+        selectedStop = hit;
+        activeDrag = { kind: 'ramp', stopIdx: hit, idx: i };
+        drawDrawerRampOnto(ramp, palStops);
+        syncStopColorInput();
+        return;
+      }
+      if (y <= cssH - 26) {
+        // Click on the bar → add a new stop.
+        const cssW = ramp.clientWidth || 1;
+        const t = Math.max(0, Math.min(1, 1 - x / cssW));
+        const idx = Math.min(254, Math.max(0, Math.round(t * 254)));
+        const built = window.PshiftPng.buildRamp(palStops);
+        palStops.push({ t, color: built[idx].slice() });
+        selectedStop = palStops.length - 1;
+        rebuildRamp();
+      }
+    });
+
+    // Stop editor row.
+    const stopRow = document.createElement('div');
+    stopRow.className = 'drawer-row stop-row';
+
+    const colorLabel = document.createElement('label');
+    colorLabel.className = 'color-square';
+    colorLabel.appendChild(document.createTextNode('color '));
+    const colorIn = document.createElement('input');
+    colorIn.type = 'color';
+    colorIn.className = 'stop-color';
+    colorLabel.appendChild(colorIn);
+    colorIn.addEventListener('input', () => {
+      const s = playlist[i].stops[selectedStop];
+      if (s) {
+        s.color = hexToRgb(colorIn.value);
+        rebuildRamp();
+      }
+    });
+
+    const removeStopBtn = document.createElement('button');
+    removeStopBtn.className = 'ghost remove-stop';
+    removeStopBtn.textContent = '× remove stop';
+    removeStopBtn.disabled = entry.stops.length <= 2;
+    removeStopBtn.addEventListener('click', () => {
+      const ps = playlist[i].stops;
+      if (ps.length <= 2) return;
+      ps.splice(selectedStop, 1);
+      selectedStop = Math.min(selectedStop, ps.length - 1);
+      rebuildRamp();
+    });
+
+    const helper = document.createElement('span');
+    helper.className = 'stop-helper';
+    helper.textContent = 'click bar to add stop';
+
+    const spacer = document.createElement('span');
+    spacer.className = 'spacer';
+
+    const removePalBtn = document.createElement('button');
+    removePalBtn.className = 'remove-palette';
+    removePalBtn.textContent = '× remove palette';
+    removePalBtn.disabled = playlist.length === 1;
+    removePalBtn.addEventListener('click', () => {
+      if (playlist.length <= 1) return;
+      if (!confirm('Remove this palette?')) return;
+      removePlaylistItem(i);
+    });
+
+    stopRow.appendChild(colorLabel);
+    stopRow.appendChild(removeStopBtn);
+    stopRow.appendChild(helper);
+    stopRow.appendChild(spacer);
+    stopRow.appendChild(removePalBtn);
+    inner.appendChild(stopRow);
+
+    row.appendChild(drawer);
+
+    // Drag-and-drop reorder.
+    row.addEventListener('dragstart', (e) => {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(i));
+      row.classList.add('dragging');
+    });
+    row.addEventListener('dragend', () => row.classList.remove('dragging'));
+    row.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      row.classList.add('drag-over');
+    });
+    row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+    row.addEventListener('drop', (e) => {
+      e.preventDefault();
+      row.classList.remove('drag-over');
+      const from = +e.dataTransfer.getData('text/plain');
+      reorderPlaylist(from, i);
+    });
+
+    root.appendChild(row);
+    drawGradient(swatch, entry.stops);
+    if (i === activeIdx) drawDrawerRampOnto(ramp, entry.stops);
+  }
+}
 
 // ─── Wire-up ─────────────────────────────────────────────────────────────
 $('clear').addEventListener('click', () => {
@@ -1470,13 +1694,17 @@ $('import').addEventListener('click', () => {
       });
     }
     selectedStop = 0;
-    const idx = (typeof meta.activeIdx === 'number'
-                 && meta.activeIdx >= 0
-                 && meta.activeIdx < playlist.length) ? meta.activeIdx : 0;
-    setActiveIdx(idx);
+    activeIdx = -1;
+    displayedIdx = 0;
+    pendingNextIdx = -1;
+    targetCycles = playlist[0].cycles || 1;
+    currentRamp = window.PshiftPng.buildRamp(playlist[0].stops);
     playMode = meta.playMode || 'sequential';
-    const r = document.querySelector(`input[name="mode"][value="${playMode}"]`);
-    if (r) r.checked = true;
+    if (engine) {
+      engine.setPalette(currentRamp);
+      engine.setSpeed(Math.abs(playlist[0].speed));
+    }
+    renderPlaylist();
     scheduleRender();
     scheduleBake();
   };
@@ -1577,99 +1805,40 @@ strokeWIn.addEventListener('input', () => {
   scheduleRender();
   scheduleBake();
 });
-speedIn.addEventListener('input', () => {
-  updateSpeedLabel();
-  if (playlist[activeIdx]) playlist[activeIdx].speed = +speedIn.value;
-  // Outside a transition, push directly. During a transition the
-  // watcher's tween reads playlist[activeIdx].speed each frame, so the
-  // change propagates that way.
-  if (engine && engine.nextPalette === null && activeIdx === displayedIdx) {
-    engine.setSpeed(speedMagnitude());
-  }
-});
-
-stopColorIn.addEventListener('input', () => {
-  if (selectedStop < 0) return;
-  stops[selectedStop].color = hexToRgb(stopColorIn.value);
-  rebuildRamp();
-});
-stopTIn.addEventListener('input', () => {
-  if (selectedStop < 0) return;
-  const t = Math.max(0, Math.min(1, +stopTIn.value || 0));
-  stops[selectedStop].t = t;
-  rebuildRamp();
-});
-$('addStop').addEventListener('click', () => {
-  const sorted = stops.slice().sort((a, b) => a.t - b.t);
-  let bestGap = 0, bestT = 0.5;
-  for (let i = 0; i < sorted.length - 1; i++) {
-    const gap = sorted[i + 1].t - sorted[i].t;
-    if (gap > bestGap) { bestGap = gap; bestT = (sorted[i].t + sorted[i + 1].t) / 2; }
-  }
-  const idx = Math.min(254, Math.max(0, Math.round(bestT * 254)));
-  stops.push({ t: bestT, color: currentRamp[idx].slice() });
-  selectedStop = stops.length - 1;
-  rebuildRamp();
-});
-$('removeStop').addEventListener('click', () => {
-  if (stops.length <= 2 || selectedStop < 0) return;
-  stops.splice(selectedStop, 1);
-  selectedStop = Math.min(selectedStop, stops.length - 1);
-  rebuildRamp();
-});
-
-refreshSeedDropdown();
-seedSel.value = 'rainbow';
-seedSel.addEventListener('change', () => seedFromPreset(seedSel.value));
-$('reset').addEventListener('click', () => seedFromPreset(seedSel.value));
 
 $('addInline').addEventListener('click', addToPlaylist);
 
-const seedNameIn = $('seedName');
-const seedSaveMeta = $('seed-save-meta');
-function trySaveSeed() {
-  const name = (seedNameIn.value || '').trim();
-  if (!name) {
-    seedSaveMeta.textContent = 'name required';
-    return;
+// Esc closes the open drawer (only when no other input is focused, so
+// it doesn't fight typing-style cancellation in the future).
+window.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (activeIdx >= 0) {
+    e.preventDefault();
+    closeDrawer();
   }
-  const seeds = loadCustomSeeds();
-  seeds[name] = stops.map(s => ({ t: s.t, color: s.color.slice() }));
-  saveCustomSeeds(seeds);
-  seedNameIn.value = '';
-  refreshSeedDropdown();
-  seedSel.value = 'custom:' + name;
-  seedSaveMeta.textContent = `saved "${name}"`;
-  setTimeout(() => { seedSaveMeta.textContent = ''; }, 1800);
-}
-$('saveSeed').addEventListener('click', trySaveSeed);
-seedNameIn.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') { e.preventDefault(); trySaveSeed(); }
-});
-
-document.querySelectorAll('input[name="mode"]').forEach((r) => {
-  r.addEventListener('change', (e) => {
-    if (!e.target.checked) return;
-    playMode = e.target.value;
-  });
 });
 
 window.addEventListener('resize', () => {
   dpr = window.devicePixelRatio || 1;
-  drawRampCanvas();
+  drawDrawerRamp();
+  if (activeIdx >= 0) drawRowSwatch(activeIdx);
   scheduleRender();
 });
 
 // ─── Init ────────────────────────────────────────────────────────────────
-// Playlist always has at least one entry. The first "Add to playlist"
-// click yields a second entry (and reveals the mode toggle).
-playlist.push({ stops: [], speed: 60, cycles: 1 });
-activeIdx = 0;
+// Playlist always has at least one entry. activeIdx = -1 means no
+// drawer is open by default; the user opens one by clicking a row.
+playlist.push({
+  stops: buildStopsFromPreset('rainbow'),
+  speed: 60,
+  cycles: 1,
+  presetName: 'rainbow',
+});
+activeIdx = -1;
 displayedIdx = 0;
-stops = playlist[0].stops;
+selectedStop = 0;
+currentRamp = window.PshiftPng.buildRamp(playlist[0].stops);
 refreshHistoryButtons();
-seedFromPreset('rainbow');     // populates playlist[0].stops via setStops
-updateSpeedLabel();
 renderPlaylist();
 startCycleWatcher();
 scheduleRender();
