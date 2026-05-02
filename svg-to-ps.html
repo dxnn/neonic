@@ -603,12 +603,86 @@ drawCvs.addEventListener('pointerdown', (e) => {
 bezCvs.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   const r = bezCvs.getBoundingClientRect();
-  const hit = bezierHitTest(e.clientX - r.left, e.clientY - r.top);
+  const x = e.clientX - r.left;
+  const y = e.clientY - r.top;
+
+  // Ctrl/Cmd-click on an anchor → delete it (need ≥2 anchors).
+  if (e.ctrlKey || e.metaKey) {
+    const hit = bezierHitTest(x, y);
+    if (hit && hit.sub === 'anchor'
+        && state.paths[hit.pi].anchors.length > 2) {
+      pushHistory();
+      state.paths[hit.pi].anchors.splice(hit.ai, 1);
+      scheduleRender();
+      scheduleBake();
+    }
+    return;
+  }
+
+  // Shift-click on the curve → insert a new anchor at the closest
+  // point along the bezier (de Casteljau split, so tangents on both
+  // sides keep their existing shape).
+  if (e.shiftKey && state.paths.length > 0) {
+    const closest = closestPointOnPath(state.paths[0], x, y, 12);
+    if (closest) {
+      pushHistory();
+      splitBezierAt(state.paths[0], closest.segIdx, closest.t);
+      scheduleRender();
+      scheduleBake();
+    }
+    return;
+  }
+
+  // Regular: drag the hit anchor or handle.
+  const hit = bezierHitTest(x, y);
   if (hit) {
     pushHistory();
     activeDrag = { kind: 'bezier', ...hit };
   }
 });
+
+function closestPointOnPath(path, x, y, maxDist) {
+  const a = path.anchors;
+  let best = null, bestD2 = (maxDist || 12) * (maxDist || 12);
+  const STEPS = 24;
+  for (let i = 0; i < a.length - 1; i++) {
+    const p = a[i], q = a[i + 1];
+    for (let s = 1; s < STEPS; s++) {
+      const t = s / STEPS;
+      const pt = bezierPoint(p, q, t);
+      const dx = pt.x - x, dy = pt.y - y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) { bestD2 = d2; best = { segIdx: i, t }; }
+    }
+  }
+  return best;
+}
+
+// de Casteljau split of segment segIdx at parameter t. Inserts the
+// resulting subdivision point as a new anchor; updates the existing
+// neighbouring anchors' inner handles so the curve shape is preserved
+// exactly through the split.
+function splitBezierAt(path, segIdx, t) {
+  const a = path.anchors;
+  const lerp = (p, q) => ({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t });
+  const P0 = { x: a[segIdx].x,        y: a[segIdx].y };
+  const P1 = { x: a[segIdx].h2x,      y: a[segIdx].h2y };
+  const P2 = { x: a[segIdx + 1].h1x,  y: a[segIdx + 1].h1y };
+  const P3 = { x: a[segIdx + 1].x,    y: a[segIdx + 1].y };
+  const A = lerp(P0, P1);
+  const B = lerp(P1, P2);
+  const C = lerp(P2, P3);
+  const D = lerp(A, B);
+  const E = lerp(B, C);
+  const F = lerp(D, E);
+  a[segIdx].h2x = A.x;       a[segIdx].h2y = A.y;
+  a[segIdx + 1].h1x = C.x;   a[segIdx + 1].h1y = C.y;
+  a.splice(segIdx + 1, 0, {
+    x: F.x, y: F.y,
+    h1x: D.x, h1y: D.y,
+    h2x: E.x, h2y: E.y,
+  });
+}
 
 rampCvs.addEventListener('pointerdown', (e) => {
   e.preventDefault();
