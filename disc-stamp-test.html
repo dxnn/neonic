@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>PF outline vs disc-stamp · sandbox</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root {
+    --bg: #f7f5ee;
+    --ink: #15151a;
+    --muted: #6b6963;
+    --rule: rgba(21,21,26,.12);
+    --accent: #1f7bff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15151a;
+      --ink: #e8e6df;
+      --muted: #8a8780;
+      --rule: rgba(232,230,223,.14);
+    }
+  }
+  html, body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 ui-serif, Georgia, "Iowan Old Style", serif; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 40px 24px 80px; }
+
+  header h1 { font-weight: 500; font-size: 26px; letter-spacing: -0.01em;
+    margin: 0 0 8px; }
+  header p { color: var(--muted); max-width: 64ch; margin: 0; font-size: 14px; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px;
+    margin-top: 28px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+  .panel { background: #fff; border: .5px solid var(--rule);
+    border-radius: 10px; padding: 16px; min-width: 0; }
+  @media (prefers-color-scheme: dark) { .panel { background: #1f1f24; } }
+
+  .panel-tag { color: var(--muted); font-size: 11px;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    text-transform: uppercase; letter-spacing: .12em; margin-bottom: 6px; }
+  .panel h2 { font-weight: 500; font-size: 17px; margin: 0 0 12px; }
+
+  canvas { display: block; width: 100%; height: 360px;
+    background: #fafaf6; border-radius: 6px;
+    user-select: none; -webkit-user-select: none; touch-action: none; }
+  canvas#pf { cursor: crosshair; }
+  @media (prefers-color-scheme: dark) { canvas { background: #15151a; } }
+
+  .controls { margin-top: 24px; display: flex; gap: 18px; align-items: center;
+    flex-wrap: wrap; font: 12px ui-sans-serif, system-ui, sans-serif; }
+  .controls label { display: inline-flex; align-items: center; gap: 6px;
+    color: var(--muted); }
+  button { appearance: none; background: var(--ink); color: var(--bg);
+    border: 0; border-radius: 6px; padding: 6px 12px;
+    font: 12px ui-sans-serif, system-ui, sans-serif; font-weight: 500;
+    cursor: default; }
+  button.ghost { background: transparent; color: var(--ink);
+    border: .5px solid var(--rule); }
+  input[type=range] { width: 160px; vertical-align: middle; }
+  .meta { color: var(--muted); margin-left: auto; }
+  .row-note { color: var(--muted); font-size: 12px; margin-top: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>PF outline vs disc-stamp.</h1>
+  <p>Draw on the left — perfect-freehand renders its outline polygon
+    (same call as the main editor's panel 1 live drag). The right
+    panel shows the same input rendered as a chain of filled discs
+    sized by PF's velocity-derived pressure. Goal: tune the disc
+    stamping until the right looks like the left, so we can use one
+    rendering pipeline for panel 1 (post-draw) and panel 4 (the
+    cycling bake).</p>
+</header>
+
+<div class="grid">
+  <section class="panel">
+    <div class="panel-tag">Reference · PF outline polygon</div>
+    <h2>Draw here.</h2>
+    <canvas id="pf"></canvas>
+  </section>
+
+  <section class="panel">
+    <div class="panel-tag">Test · disc-stamped</div>
+    <h2>Should match.</h2>
+    <canvas id="disc"></canvas>
+  </section>
+</div>
+
+<div class="controls">
+  <button class="ghost" id="clear">Clear</button>
+  <label>Stroke
+    <input id="strokeW" type="range" min="6" max="64" value="22" />
+    <span id="strokeW-val">22</span>
+  </label>
+  <label title="Discs per PF-processed point — interpolate between adjacent points">
+    Sub-samples
+    <input id="subSamples" type="range" min="0" max="16" value="0" />
+    <span id="subSamples-val">0</span>
+  </label>
+  <label title="Recompute pressures via getStrokePoints (matches PF's getStroke pipeline)">
+    <input id="usePF" type="checkbox" checked /> Run input through getStrokePoints
+  </label>
+  <span class="meta" id="info"></span>
+</div>
+
+<p class="row-note">
+  PF's outline polygon offsets each centerline point left/right by half
+  the local width and connects them. Disc stamps approximate this with
+  a circle of the same diameter at each centerline point. With dense
+  sampling they should be indistinguishable; sparse sampling will show
+  rounded "stepping" between adjacent widths.
+</p>
+
+</div>
+
+<script type="module">
+import { getStroke, getStrokePoints } from './perfect-freehand.mjs';
+
+const pfCvs = document.getElementById('pf');
+const discCvs = document.getElementById('disc');
+const pfCtx = pfCvs.getContext('2d');
+const discCtx = discCvs.getContext('2d');
+const strokeWIn = document.getElementById('strokeW');
+const strokeWVal = document.getElementById('strokeW-val');
+const subIn = document.getElementById('subSamples');
+const subVal = document.getElementById('subSamples-val');
+const usePFIn = document.getElementById('usePF');
+const info = document.getElementById('info');
+
+let dpr = window.devicePixelRatio || 1;
+let rawStroke = [];
+let drawing = false;
+let renderRaf = 0;
+
+function fitCanvas(canvas, ctx) {
+  const cssW = canvas.clientWidth, cssH = canvas.clientHeight;
+  if (!cssW || !cssH) return false;
+  const W = Math.round(cssW * dpr), H = Math.round(cssH * dpr);
+  if (canvas.width !== W || canvas.height !== H) {
+    canvas.width = W; canvas.height = H;
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return true;
+}
+function getInk() {
+  return getComputedStyle(document.documentElement)
+    .getPropertyValue('--ink').trim() || '#15151a';
+}
+function getMuted() {
+  return getComputedStyle(document.documentElement)
+    .getPropertyValue('--muted').trim() || '#6b6963';
+}
+
+function eventToPoint(e, canvas) {
+  const r = canvas.getBoundingClientRect();
+  return {
+    x: e.clientX - r.left,
+    y: e.clientY - r.top,
+    pressure: e.pressure || 0.5,
+  };
+}
+
+pfCvs.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  drawing = true;
+  rawStroke = [eventToPoint(e, pfCvs)];
+  scheduleRender();
+});
+window.addEventListener('pointermove', (e) => {
+  if (!drawing) return;
+  const p = eventToPoint(e, pfCvs);
+  const last = rawStroke[rawStroke.length - 1];
+  const dx = p.x - last.x, dy = p.y - last.y;
+  if (dx * dx + dy * dy < 4) return;
+  rawStroke.push(p);
+  scheduleRender();
+});
+window.addEventListener('pointerup', () => {
+  if (!drawing) return;
+  drawing = false;
+  scheduleRender();
+});
+
+function scheduleRender() {
+  if (renderRaf) return;
+  renderRaf = requestAnimationFrame(() => {
+    renderRaf = 0;
+    render();
+  });
+}
+
+function render() {
+  fitCanvas(pfCvs, pfCtx);
+  fitCanvas(discCvs, discCtx);
+  const cssW = pfCvs.clientWidth, cssH = pfCvs.clientHeight;
+  pfCtx.clearRect(0, 0, cssW, cssH);
+  discCtx.clearRect(0, 0, cssW, cssH);
+
+  if (rawStroke.length === 0) {
+    info.textContent = '';
+    pfCtx.fillStyle = getMuted(); pfCtx.globalAlpha = 0.7;
+    pfCtx.font = '14px ui-sans-serif, system-ui, sans-serif';
+    pfCtx.fillText('draw a stroke', 16, 26);
+    pfCtx.globalAlpha = 1;
+    return;
+  }
+
+  const w = +strokeWIn.value;
+  const opts = { size: w, thinning: 0.4, smoothing: 0.55, streamline: 0.5 };
+  const flat = rawStroke.map(p => [p.x, p.y, p.pressure]);
+  const inkColor = getInk();
+
+  // Panel 1: PF outline polygon.
+  const outline = getStroke(flat, { ...opts, last: !drawing });
+  if (outline.length >= 3) {
+    pfCtx.fillStyle = inkColor;
+    pfCtx.beginPath();
+    pfCtx.moveTo(outline[0][0], outline[0][1]);
+    for (let i = 1; i < outline.length; i++) pfCtx.lineTo(outline[i][0], outline[i][1]);
+    pfCtx.closePath();
+    pfCtx.fill();
+  }
+
+  // Panel 2: disc-stamped using same pressure / width formula PF uses
+  // internally (thinning 0.4 → width = size * (0.6 + 0.8 * pressure)).
+  // If usePF is on we run input through getStrokePoints first so the
+  // pressure profile matches what PF used for its outline.
+  let centerline;
+  if (usePFIn.checked) {
+    const pts = getStrokePoints(flat, { ...opts, last: !drawing });
+    centerline = pts.map(p => ({
+      x: p.point[0], y: p.point[1], pressure: p.pressure,
+    }));
+  } else {
+    centerline = rawStroke.map(p => ({ x: p.x, y: p.y, pressure: p.pressure }));
+  }
+
+  const subN = +subIn.value;
+  const widthAt = (pressure) => w * (0.6 + 0.8 * pressure);
+
+  discCtx.fillStyle = inkColor;
+  let discCount = 0;
+  for (let i = 0; i < centerline.length; i++) {
+    const p = centerline[i];
+    stampDisc(p.x, p.y, p.pressure);
+    discCount++;
+    if (subN > 0 && i < centerline.length - 1) {
+      const q = centerline[i + 1];
+      for (let k = 1; k <= subN; k++) {
+        const t = k / (subN + 1);
+        const x = p.x + (q.x - p.x) * t;
+        const y = p.y + (q.y - p.y) * t;
+        const press = p.pressure + (q.pressure - p.pressure) * t;
+        stampDisc(x, y, press);
+        discCount++;
+      }
+    }
+  }
+
+  function stampDisc(x, y, pressure) {
+    const r = Math.max(0.5, widthAt(pressure) / 2);
+    discCtx.beginPath();
+    discCtx.arc(x, y, r, 0, Math.PI * 2);
+    discCtx.fill();
+  }
+
+  info.textContent = `${rawStroke.length} raw · ${centerline.length} centerline · ${discCount} discs`;
+}
+
+document.getElementById('clear').addEventListener('click', () => {
+  rawStroke = [];
+  scheduleRender();
+});
+strokeWIn.addEventListener('input', () => {
+  strokeWVal.textContent = strokeWIn.value;
+  scheduleRender();
+});
+subIn.addEventListener('input', () => {
+  subVal.textContent = subIn.value;
+  scheduleRender();
+});
+usePFIn.addEventListener('change', scheduleRender);
+
+window.addEventListener('resize', () => {
+  dpr = window.devicePixelRatio || 1;
+  scheduleRender();
+});
+
+scheduleRender();
+</script>
+</body>
+</html>
