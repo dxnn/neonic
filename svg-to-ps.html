@@ -604,9 +604,9 @@ function drawBezierPanel() {
 }
 
 // Compute the perpendicular axis at an anchor (from h1→h2 tangent),
-// and the width handle's position offset along it by the full width
-// (1 px of drag = 1 px of width change — keeps the handle visibly
-// outside the stroke and slows the response so it isn't twitchy).
+// and the width handle's position offset along it by 2× the width
+// (1 px of drag = 0.5 px of width change — sits well outside the
+// stroke at typical sizes so the handle is easy to grab).
 function widthHandlePos(anchor) {
   const w = anchor.width == null ? 22 : anchor.width;
   let tx = anchor.h2x - anchor.h1x;
@@ -615,8 +615,8 @@ function widthHandlePos(anchor) {
   tx /= len; ty /= len;
   const px = -ty, py = tx;   // perpendicular: 90° CCW
   return {
-    x: anchor.x + px * w,
-    y: anchor.y + py * w,
+    x: anchor.x + px * w * 2,
+    y: anchor.y + py * w * 2,
     perpX: px, perpY: py,
   };
 }
@@ -800,11 +800,11 @@ window.addEventListener('pointermove', (e) => {
       a.h2x = x; a.h2y = y;
     } else if (activeDrag.sub === 'width') {
       // Project the pointer onto the local perpendicular axis. Handle
-      // sits at distance = width from the anchor (see widthHandlePos),
-      // so |projection| is the new width directly.
+      // sits at 2× width from the anchor (see widthHandlePos), so the
+      // new width is |projection| / 2.
       const wh = widthHandlePos(a);
       const proj = (x - a.x) * wh.perpX + (y - a.y) * wh.perpY;
-      a.width = Math.max(2, Math.min(200, Math.abs(proj)));
+      a.width = Math.max(2, Math.min(200, Math.abs(proj) / 2));
     }
     scheduleRender();
     scheduleBake();
