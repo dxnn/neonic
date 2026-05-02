@@ -101,9 +101,6 @@
     <input id="subSamples" type="range" min="0" max="16" value="0" />
     <span id="subSamples-val">0</span>
   </label>
-  <label title="Recompute pressures via getStrokePoints (matches PF's getStroke pipeline)">
-    <input id="usePF" type="checkbox" checked /> Run input through getStrokePoints
-  </label>
   <span class="meta" id="info"></span>
 </div>
 
@@ -128,8 +125,36 @@ const strokeWIn = document.getElementById('strokeW');
 const strokeWVal = document.getElementById('strokeW-val');
 const subIn = document.getElementById('subSamples');
 const subVal = document.getElementById('subSamples-val');
-const usePFIn = document.getElementById('usePF');
 const info = document.getElementById('info');
+
+// Replicates perfect-freehand's internal pressure simulation. PF's
+// `simulatePressure` flag lives on getStrokeOutlinePoints (not on
+// getStrokePoints), and it's applied LOCALLY inside the outline
+// builder — the strokePoints' pressures are never mutated. To stamp
+// discs at the same widths PF rendered, we apply the same logic
+// here. Source: perfect-freehand.mjs functions `o` (per-point step)
+// and `re` (10-point seed).
+function pfSimulatePressure(strokePoints, size) {
+  if (!strokePoints.length) return strokePoints;
+  const step = (prev, distance) => {
+    const r = Math.min(1, distance / size);
+    const target = Math.min(1, 1 - r);
+    return Math.min(1, prev + (target - prev) * (r * 0.275));
+  };
+  // Seed: average the simulated pressures across the first 10 points.
+  let seed = strokePoints[0].pressure;
+  const limit = Math.min(10, strokePoints.length);
+  for (let i = 0; i < limit; i++) {
+    const sim = step(seed, strokePoints[i].distance);
+    seed = (seed + sim) / 2;
+  }
+  // Each output point uses the seed as `prev` and its own distance.
+  return strokePoints.map((p) => ({
+    point: p.point,
+    distance: p.distance,
+    pressure: step(seed, p.distance),
+  }));
+}
 
 let dpr = window.devicePixelRatio || 1;
 let rawStroke = [];
@@ -225,19 +250,16 @@ function render() {
     pfCtx.fill();
   }
 
-  // Panel 2: disc-stamped using same pressure / width formula PF uses
-  // internally (thinning 0.4 → width = size * (0.6 + 0.8 * pressure)).
-  // If usePF is on we run input through getStrokePoints first so the
-  // pressure profile matches what PF used for its outline.
-  let centerline;
-  if (usePFIn.checked) {
-    const pts = getStrokePoints(flat, { ...opts, last: !drawing });
-    centerline = pts.map(p => ({
-      x: p.point[0], y: p.point[1], pressure: p.pressure,
-    }));
-  } else {
-    centerline = rawStroke.map(p => ({ x: p.x, y: p.y, pressure: p.pressure }));
-  }
+  // Panel 2: disc-stamped. We pull centerline points + distances from
+  // getStrokePoints, then apply PF's internal simulatePressure
+  // ourselves (the flag on getStrokePoints is a no-op — it lives on
+  // getStrokeOutlinePoints). Width formula matches PF with thinning
+  // 0.4: width = size * (0.6 + 0.8 * pressure).
+  const strokePts = getStrokePoints(flat, { ...opts, last: !drawing });
+  const simulated = pfSimulatePressure(strokePts, w);
+  const centerline = simulated.map(p => ({
+    x: p.point[0], y: p.point[1], pressure: p.pressure,
+  }));
 
   const subN = +subIn.value;
   const widthAt = (pressure) => w * (0.6 + 0.8 * pressure);
@@ -283,7 +305,6 @@ subIn.addEventListener('input', () => {
   subVal.textContent = subIn.value;
   scheduleRender();
 });
-usePFIn.addEventListener('change', scheduleRender);
 
 window.addEventListener('resize', () => {
   dpr = window.devicePixelRatio || 1;
