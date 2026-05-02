@@ -198,33 +198,51 @@
       pts[i] = { x: s.x * scale + tx, y: s.y * scale + ty, pressure: s.pressure };
     }
 
+    // Match perfect-freehand's effective width (thinning = 0.4):
+    //   width = baseWidth * (1 - 0.4 * (1 - 2 * pressure))
+    //         = baseWidth * (0.6 + 0.8 * pressure)
+    // Round-capped strokes would let a thicker neighbour's cap engulf
+    // a thinner segment, so we stamp discs at every sample point with
+    // radius = local width / 2. Adjacent same-coloured discs overlap
+    // smoothly; later (higher-index) discs paint over earlier ones at
+    // segment boundaries, which is the desired ordering.
+    const widthAt = (pressure) => baseWidth * scale * (0.6 + 0.8 * pressure);
+
     const idxC = document.createElement('canvas'); idxC.width = w; idxC.height = h;
     const ictx = idxC.getContext('2d', { willReadFrequently: true });
-    ictx.lineCap = 'round'; ictx.lineJoin = 'round';
     for (let i = 0; i < N_SEG; i++) {
       const v = i + 1;
-      ictx.strokeStyle = 'rgb(' + v + ',0,0)';
+      ictx.fillStyle = 'rgb(' + v + ',0,0)';
       const base = i * SUBSEG;
-      const mid = pts[base + (SUBSEG >> 1)];
-      ictx.lineWidth = Math.max(0.5, baseWidth * scale * mid.pressure * 2);
+      for (let j = 0; j < SUBSEG; j++) {
+        const p = pts[base + j];
+        const r = Math.max(0.5, widthAt(p.pressure) / 2);
+        ictx.beginPath();
+        ictx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ictx.fill();
+      }
+    }
+    // Stamp the very last point with the highest index so the tail
+    // doesn't fade out before the rest of the cycling band.
+    {
+      const last = pts[TOTAL];
+      ictx.fillStyle = 'rgb(254,0,0)';
+      const r = Math.max(0.5, widthAt(last.pressure) / 2);
       ictx.beginPath();
-      ictx.moveTo(pts[base].x, pts[base].y);
-      for (let j = 1; j <= SUBSEG; j++) ictx.lineTo(pts[base + j].x, pts[base + j].y);
-      ictx.stroke();
+      ictx.arc(last.x, last.y, r, 0, Math.PI * 2);
+      ictx.fill();
     }
     const idxData = ictx.getImageData(0, 0, w, h).data;
 
     const mskC = document.createElement('canvas'); mskC.width = w; mskC.height = h;
     const mctx = mskC.getContext('2d', { willReadFrequently: true });
-    mctx.lineCap = 'round'; mctx.lineJoin = 'round'; mctx.strokeStyle = '#fff';
-    for (let i = 0; i < N_SEG; i++) {
-      const base = i * SUBSEG;
-      const mid = pts[base + (SUBSEG >> 1)];
-      mctx.lineWidth = Math.max(0.5, baseWidth * scale * mid.pressure * 2 * 0.92);
+    mctx.fillStyle = '#fff';
+    for (let i = 0; i <= TOTAL; i++) {
+      const p = pts[i];
+      const r = Math.max(0.5, widthAt(p.pressure) / 2 * 0.92);
       mctx.beginPath();
-      mctx.moveTo(pts[base].x, pts[base].y);
-      for (let j = 1; j <= SUBSEG; j++) mctx.lineTo(pts[base + j].x, pts[base + j].y);
-      mctx.stroke();
+      mctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      mctx.fill();
     }
     const mskData = mctx.getImageData(0, 0, w, h).data;
 

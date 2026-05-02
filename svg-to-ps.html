@@ -467,6 +467,10 @@ function fillPolygon(ctx, pts, fill) {
   ctx.fill();
 }
 
+// Read CSS variables so canvas-painted strokes follow the page theme.
+function getInk()   { return getComputedStyle(document.documentElement).getPropertyValue('--ink').trim()   || '#15151a'; }
+function getMuted() { return getComputedStyle(document.documentElement).getPropertyValue('--muted').trim() || '#6b6963'; }
+
 function drawDrawingPanel() {
   if (!fitCanvas(drawCvs, dctx)) return;
   const cssW = drawCvs.clientWidth, cssH = drawCvs.clientHeight;
@@ -474,25 +478,28 @@ function drawDrawingPanel() {
 
   const w = +strokeWIn.value;
   const opts = { size: w, thinning: 0.4, smoothing: 0.55, streamline: 0.5 };
+  const inkColor = getInk();
 
   for (const path of state.paths) {
     const sampled = samplePath(path, 12);
     if (sampled.length < 2) continue;
     const flat = sampled.map(p => [p.x, p.y, 0.5]);
     const outline = getStroke(flat, { ...opts, last: true });
-    fillPolygon(dctx, outline, '#15151a');
+    fillPolygon(dctx, outline, inkColor);
   }
 
   if (rawLiveStroke && rawLiveStroke.length >= 1) {
     const flat = rawLiveStroke.map(p => [p.x, p.y, p.pressure]);
     const outline = getStroke(flat, { ...opts, last: !activeDrag });
-    fillPolygon(dctx, outline, '#15151a');
+    fillPolygon(dctx, outline, inkColor);
   }
 
   if (state.paths.length === 0 && !rawLiveStroke) {
-    dctx.fillStyle = 'rgba(21,21,26,0.32)';
+    dctx.fillStyle = getMuted();
+    dctx.globalAlpha = 0.7;
     dctx.font = '14px ui-sans-serif, system-ui, sans-serif';
     dctx.fillText('draw a stroke', 16, 26);
+    dctx.globalAlpha = 1;
   }
 }
 
@@ -502,15 +509,18 @@ function drawBezierPanel() {
   bctx.clearRect(0, 0, cssW, cssH);
 
   if (state.paths.length === 0) {
-    bctx.fillStyle = 'rgba(21,21,26,0.32)';
+    bctx.fillStyle = getMuted();
+    bctx.globalAlpha = 0.7;
     bctx.font = '14px ui-sans-serif, system-ui, sans-serif';
     bctx.fillText('draw a stroke first', 16, 26);
+    bctx.globalAlpha = 1;
     return;
   }
 
+  const inkColor = getInk();
   for (const path of state.paths) {
     const a = path.anchors;
-    bctx.strokeStyle = '#15151a';
+    bctx.strokeStyle = inkColor;
     bctx.lineWidth = 1.5;
     bctx.beginPath();
     bctx.moveTo(a[0].x, a[0].y);
