@@ -129,11 +129,14 @@ const info = document.getElementById('info');
 
 // Replicates perfect-freehand's internal pressure simulation. PF's
 // `simulatePressure` flag lives on getStrokeOutlinePoints (not on
-// getStrokePoints), and it's applied LOCALLY inside the outline
-// builder — the strokePoints' pressures are never mutated. To stamp
-// discs at the same widths PF rendered, we apply the same logic
-// here. Source: perfect-freehand.mjs functions `o` (per-point step)
-// and `re` (10-point seed).
+// getStrokePoints), and the simulation runs LOCALLY inside the
+// outline builder — strokePoints' pressures are never mutated. The
+// loop is *iterative*: V starts as a seed (re()), and after each
+// point's pressure is computed (`a = o(V, distance, size)`), V is
+// updated to that pressure for the next iteration (`V = a`). So
+// pressures compound — sustained fast strokes drift toward 0, slow
+// toward 1. Source: perfect-freehand.mjs functions o, re, and the
+// `for` loop in P (getStrokeOutlinePoints).
 function pfSimulatePressure(strokePoints, size) {
   if (!strokePoints.length) return strokePoints;
   const step = (prev, distance) => {
@@ -141,19 +144,20 @@ function pfSimulatePressure(strokePoints, size) {
     const target = Math.min(1, 1 - r);
     return Math.min(1, prev + (target - prev) * (r * 0.275));
   };
-  // Seed: average the simulated pressures across the first 10 points.
+  // Seed: average across the first 10 simulated pressures (PF's `re`).
   let seed = strokePoints[0].pressure;
   const limit = Math.min(10, strokePoints.length);
   for (let i = 0; i < limit; i++) {
     const sim = step(seed, strokePoints[i].distance);
     seed = (seed + sim) / 2;
   }
-  // Each output point uses the seed as `prev` and its own distance.
-  return strokePoints.map((p) => ({
-    point: p.point,
-    distance: p.distance,
-    pressure: step(seed, p.distance),
-  }));
+  // Iterative simulation: V updates to the previous point's pressure
+  // each step. This is what gives PF's strokes their dynamic range.
+  let V = seed;
+  return strokePoints.map((p) => {
+    V = step(V, p.distance);
+    return { point: p.point, distance: p.distance, pressure: V };
+  });
 }
 
 let dpr = window.devicePixelRatio || 1;
