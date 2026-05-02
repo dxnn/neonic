@@ -208,9 +208,6 @@
         <input id="strokeW" type="range" min="6" max="64" value="11" />
         <span id="strokeW-val">11</span>
       </label>
-      <label title="Use the variable widths captured while drawing instead of a uniform stroke">
-        <input type="checkbox" id="useDrawnWidths" /> Drawn widths
-      </label>
     </div>
   </section>
 
@@ -310,9 +307,6 @@ const state = { paths: [] };
 let liveStroke = null;
 let rawLiveStroke = null;
 let smoothLevel = 1.5;
-// Cached outline polygon from the most recent live PF call. Panel 1
-// blits this verbatim post-pointerup — no PF re-processing.
-let lastOutline = null;
 let currentRamp = null;
 let stops = [];
 let selectedStop = -1;
@@ -404,15 +398,17 @@ function polylineToBezier(points) {
     const next = points[i + 1] || p;
     const tx = (next.x - prev.x) / 6;
     const ty = (next.y - prev.y) / 6;
+    // Anchors carry absolute pixel widths. processRawStroke supplies
+    // them at draw time; legacy imports (with `pressure`) get migrated
+    // to widths on the way in.
+    const w = p.width != null ? p.width
+            : p.pressure != null ? 22 * (0.6 + 0.8 * p.pressure)
+            : 22;
     a[i] = {
       x: p.x, y: p.y,
       h1x: p.x - tx, h1y: p.y - ty,
       h2x: p.x + tx, h2y: p.y + ty,
-      // Carry the input point's pressure onto the anchor so widths
-      // survive bezier editing. polylineToBezier is fed PF-processed
-      // (velocity-simulated) points, so anchor pressures already
-      // reflect drawing speed.
-      pressure: p.pressure == null ? 0.5 : p.pressure,
+      width: w,
     };
   }
   return { anchors: a };
@@ -428,15 +424,15 @@ function bezierPoint(p, q, t) {
 function samplePath(path, perSeg) {
   const a = path.anchors;
   if (a.length < 2) return [];
-  const pressureOf = (anchor) => (anchor.pressure == null ? 0.5 : anchor.pressure);
-  const out = [{ x: a[0].x, y: a[0].y, pressure: pressureOf(a[0]) }];
+  const widthOf = (anchor) => (anchor.width == null ? 22 : anchor.width);
+  const out = [{ x: a[0].x, y: a[0].y, width: widthOf(a[0]) }];
   for (let i = 1; i < a.length; i++) {
     const p = a[i-1], q = a[i];
-    const pp = pressureOf(p), qp = pressureOf(q);
+    const pw = widthOf(p), qw = widthOf(q);
     for (let k = 1; k <= perSeg; k++) {
       const t = k / perSeg;
       const pt = bezierPoint(p, q, t);
-      pt.pressure = pp + (qp - pp) * t;
+      pt.width = pw + (qw - pw) * t;
       out.push(pt);
     }
   }
@@ -483,16 +479,51 @@ function fillPolygon(ctx, pts, fill) {
 function getInk()   { return getComputedStyle(document.documentElement).getPropertyValue('--ink').trim()   || '#15151a'; }
 function getMuted() { return getComputedStyle(document.documentElement).getPropertyValue('--muted').trim() || '#6b6963'; }
 
-// Pre-process a freshly-drawn stroke with perfect-freehand's pressure
-// simulator. Mouse / non-pen input arrives with a flat 0.5 pressure;
-// PF's getStrokePoints turns velocity into pressure (faster strokes
-// → lower pressure → thinner output). Returns {x, y, pressure}[].
-function simulatePressureFor(rawPoints, size) {
-  const flat = rawPoints.map(p => [p.x, p.y, p.pressure]);
-  const adjusted = getStrokePoints(flat, {
-    size, simulatePressure: true, streamline: 0.5, last: true,
+// Replicates perfect-freehand's iterative simulatePressure (it's a
+// no-op as a parameter to getStrokePoints — the flag actually lives
+// on getStrokeOutlinePoints, applied locally inside the outline
+// builder without mutating the input). For each centerline point,
+// V advances via the same step PF uses internally:
+//   ratio = min(1, distance/size)
+//   target = min(1, 1 - ratio)
+//   V_next = min(1, V + (target - V) * ratio * 0.275)
+// V seeds from the average of the first 10 simulated pressures. The
+// per-point V is iterative — sustained fast strokes drift toward 0,
+// sustained slow toward 1. That's what gives PF its dynamic range.
+function pfSimulatePressure(strokePoints, size) {
+  if (!strokePoints.length) return strokePoints;
+  const step = (prev, distance) => {
+    const r = Math.min(1, distance / size);
+    const target = Math.min(1, 1 - r);
+    return Math.min(1, prev + (target - prev) * (r * 0.275));
+  };
+  let seed = strokePoints[0].pressure;
+  const limit = Math.min(10, strokePoints.length);
+  for (let i = 0; i < limit; i++) {
+    const sim = step(seed, strokePoints[i].distance);
+    seed = (seed + sim) / 2;
+  }
+  let V = seed;
+  return strokePoints.map((p) => {
+    V = step(V, p.distance);
+    return { point: p.point, distance: p.distance, pressure: V };
   });
-  return adjusted.map(p => ({ x: p.point[0], y: p.point[1], pressure: p.pressure }));
+}
+
+// Process a freshly-drawn raw stroke into {x, y, width}[] suitable for
+// polylineToBezier — same pipeline used to render the live PF outline,
+// then convert pressure to absolute pixel width via PF's thinning
+// formula (thinning 0.4 → width = size * (0.6 + 0.8 * pressure)).
+function processRawStroke(rawStroke, size) {
+  const flat = rawStroke.map(p => [p.x, p.y, p.pressure]);
+  const sp = getStrokePoints(flat, { size, streamline: 0.5, last: true });
+  if (sp.length < 2) return [];
+  const simulated = pfSimulatePressure(sp, size);
+  return simulated.map(p => ({
+    x: p.point[0],
+    y: p.point[1],
+    width: size * (0.6 + 0.8 * p.pressure),
+  }));
 }
 
 function drawDrawingPanel() {
@@ -503,32 +534,24 @@ function drawDrawingPanel() {
   const inkColor = getInk();
 
   if (rawLiveStroke && rawLiveStroke.length >= 1) {
-    // Live drag: PF generates the outline; cache it for later blits.
+    // Live drag: PF outline polygon. Same call as before.
     const w = +strokeWIn.value;
     const opts = { size: w, thinning: 0.4, smoothing: 0.55, streamline: 0.5 };
     const flat = rawLiveStroke.map(p => [p.x, p.y, p.pressure]);
     const outline = getStroke(flat, { ...opts, last: !activeDrag });
-    lastOutline = outline;
     fillPolygon(dctx, outline, inkColor);
-  } else if (lastOutline && lastOutline.length >= 3) {
-    // Post-pointerup or any redraw (resize, dpr): blit the exact
-    // polygon PF produced on the last live frame. No re-running PF,
-    // no width re-derivation. What you drew is what stays.
-    fillPolygon(dctx, lastOutline, inkColor);
   } else if (state.paths.length > 0 && state.paths[0].anchors.length >= 2) {
-    // No live history (e.g. just imported): fall back to a flat-width
-    // bezier stroke so panel 1 isn't blank.
-    const a = state.paths[0].anchors;
-    dctx.strokeStyle = inkColor;
-    dctx.lineWidth = +strokeWIn.value;
-    dctx.lineCap = 'round'; dctx.lineJoin = 'round';
-    dctx.beginPath();
-    dctx.moveTo(a[0].x, a[0].y);
-    for (let i = 1; i < a.length; i++) {
-      const p = a[i - 1], q = a[i];
-      dctx.bezierCurveTo(p.h2x, p.h2y, q.h1x, q.h1y, q.x, q.y);
+    // Post-draw / after edits: disc-stamp the bezier with anchor
+    // widths. Same algorithm panel 4's bake uses, so the two panels
+    // always agree.
+    const samples = samplePath(state.paths[0], 16);
+    dctx.fillStyle = inkColor;
+    for (const p of samples) {
+      const r = Math.max(0.5, p.width / 2);
+      dctx.beginPath();
+      dctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      dctx.fill();
     }
-    dctx.stroke();
   } else {
     dctx.fillStyle = getMuted();
     dctx.globalAlpha = 0.7;
@@ -569,11 +592,31 @@ function drawBezierPanel() {
       if (i > 0) drawHandle(a[i].x, a[i].y, a[i].h1x, a[i].h1y);
       if (i < a.length - 1) drawHandle(a[i].x, a[i].y, a[i].h2x, a[i].h2y);
     }
+    for (let i = 0; i < a.length; i++) {
+      const wh = widthHandlePos(a[i]);
+      drawWidthHandle(a[i].x, a[i].y, wh.x, wh.y);
+    }
     for (let i = 0; i < a.length; i++) drawAnchor(a[i].x, a[i].y);
   }
 
   const totalAnchors = state.paths.reduce((n, p) => n + p.anchors.length, 0);
   bezMeta.textContent = `${totalAnchors} anchors`;
+}
+
+// Compute the perpendicular axis at an anchor (from h1→h2 tangent),
+// and the width handle's position offset along it by half the width.
+function widthHandlePos(anchor) {
+  const w = anchor.width == null ? 22 : anchor.width;
+  let tx = anchor.h2x - anchor.h1x;
+  let ty = anchor.h2y - anchor.h1y;
+  const len = Math.hypot(tx, ty) || 1;
+  tx /= len; ty /= len;
+  const px = -ty, py = tx;   // perpendicular: 90° CCW
+  return {
+    x: anchor.x + px * w / 2,
+    y: anchor.y + py * w / 2,
+    perpX: px, perpY: py,
+  };
 }
 
 function drawHandle(ax, ay, hx, hy) {
@@ -584,6 +627,21 @@ function drawHandle(ax, ay, hx, hy) {
   bctx.stroke();
   bctx.fillStyle = '#fff';
   bctx.strokeStyle = '#1f7bff';
+  bctx.lineWidth = 1.2;
+  bctx.beginPath();
+  bctx.rect(hx - 3.5, hy - 3.5, 7, 7);
+  bctx.fill(); bctx.stroke();
+}
+function drawWidthHandle(ax, ay, hx, hy) {
+  bctx.strokeStyle = 'rgba(255,138,20,0.45)';
+  bctx.lineWidth = 1;
+  bctx.setLineDash([2, 2]);
+  bctx.beginPath();
+  bctx.moveTo(ax, ay); bctx.lineTo(hx, hy);
+  bctx.stroke();
+  bctx.setLineDash([]);
+  bctx.fillStyle = '#fff';
+  bctx.strokeStyle = '#ff8a14';
   bctx.lineWidth = 1.2;
   bctx.beginPath();
   bctx.rect(hx - 3.5, hy - 3.5, 7, 7);
@@ -694,13 +752,13 @@ function splitBezierAt(path, segIdx, t) {
   const F = lerp(D, E);
   a[segIdx].h2x = A.x;       a[segIdx].h2y = A.y;
   a[segIdx + 1].h1x = C.x;   a[segIdx + 1].h1y = C.y;
-  const pa = a[segIdx].pressure == null ? 0.5 : a[segIdx].pressure;
-  const pb = a[segIdx + 1].pressure == null ? 0.5 : a[segIdx + 1].pressure;
+  const wa = a[segIdx].width == null ? 22 : a[segIdx].width;
+  const wb = a[segIdx + 1].width == null ? 22 : a[segIdx + 1].width;
   a.splice(segIdx + 1, 0, {
     x: F.x, y: F.y,
     h1x: D.x, h1y: D.y,
     h2x: E.x, h2y: E.y,
-    pressure: pa + (pb - pa) * t,
+    width: wa + (wb - wa) * t,
   });
 }
 
@@ -738,6 +796,12 @@ window.addEventListener('pointermove', (e) => {
       a.h1x = x; a.h1y = y;
     } else if (activeDrag.sub === 'h2') {
       a.h2x = x; a.h2y = y;
+    } else if (activeDrag.sub === 'width') {
+      // Project the pointer onto the local perpendicular axis;
+      // |projection| × 2 is the new width.
+      const wh = widthHandlePos(a);
+      const proj = (x - a.x) * wh.perpX + (y - a.y) * wh.perpY;
+      a.width = Math.max(2, Math.min(200, Math.abs(proj) * 2));
     }
     scheduleRender();
     scheduleBake();
@@ -756,14 +820,13 @@ window.addEventListener('pointerup', () => {
   activeDrag = null;
   if (drag.kind === 'draw') {
     if (rawLiveStroke && rawLiveStroke.length >= 2) {
-      // Run the raw points through PF's velocity-based pressure
-      // simulator so the bezier anchors carry the same pressures PF
-      // used during the live drag (so the drawn-widths bake in panel 4
-      // matches what was on screen). The result feeds straight into
-      // the bezier — we don't keep it around as a separate copy.
-      const adjusted = simulatePressureFor(rawLiveStroke, +strokeWIn.value);
+      // Run PF's pipeline (getStrokePoints + iterative simulatePressure)
+      // and convert pressure → absolute pixel width using PF's thinning
+      // formula. The bezier anchors carry widths from here on; the
+      // raw input is discarded.
+      const processed = processRawStroke(rawLiveStroke, +strokeWIn.value);
       smoothLevel = 1.5;
-      const path = polylineToBezier(rdpSimplify(adjusted, smoothLevel));
+      const path = polylineToBezier(rdpSimplify(processed, smoothLevel));
       if (path) state.paths = [path];
     }
     rawLiveStroke = null;
@@ -798,6 +861,9 @@ function bezierHitTest(x, y) {
         d = Math.hypot(a[ai].h2x - x, a[ai].h2y - y);
         if (d < bestD) { best = { pi, ai, sub: 'h2' }; bestD = d; }
       }
+      const wh = widthHandlePos(a[ai]);
+      d = Math.hypot(wh.x - x, wh.y - y);
+      if (d < bestD) { best = { pi, ai, sub: 'width' }; bestD = d; }
     }
   }
   return best;
@@ -810,28 +876,15 @@ function scheduleBake() {
 }
 
 function rebake() {
-  if (state.paths.length === 0) return;
-  const drawnWidths = $('useDrawnWidths').checked;
+  if (state.paths.length === 0 || state.paths[0].anchors.length < 2) return;
   let baked;
   try {
-    if (drawnWidths && state.paths[0].anchors.length >= 2) {
-      // Sample the (possibly edited) bezier finely, feed the per-anchor
-      // pressures through to the engine. Same path-shape → same panel-4
-      // shape as the no-widths bake, but with the drawn-width profile.
-      baked = window.HyperDrive.bakeFromStroke({
-        stroke: samplePath(state.paths[0], 16),
-        scale: 1.6, padding: 24,
-        baseWidth: +strokeWIn.value, half: 'full',
-      });
-    } else {
-      const d = state.paths.map(pathToD).join(' ');
-      if (!d) return;
-      baked = window.HyperDrive.bakeFromD({
-        d, scale: 1.6, padding: 24,
-        strokeWidth: +strokeWIn.value,
-        half: 'full',
-      });
-    }
+    // Always bake from bezier samples with anchor widths. Panel 4
+    // uses the same disc-stamping algorithm as panel 1.
+    baked = window.HyperDrive.bakeFromStroke({
+      stroke: samplePath(state.paths[0], 16),
+      scale: 1.6, padding: 24, half: 'full',
+    });
   } catch (e) {
     bakeMeta.textContent = 'bake failed: ' + e.message;
     return;
@@ -1301,7 +1354,6 @@ $('clear').addEventListener('click', () => {
   pushHistory();
   state.paths = [];
   rawLiveStroke = null;
-  lastOutline = null;
   smoothLevel = 1.5;
   if (engine) { engine.stop(); engine = null; }
   outCvs.width = 1; outCvs.height = 1;
@@ -1310,12 +1362,11 @@ $('clear').addEventListener('click', () => {
 });
 
 function snapshot() {
-  return JSON.stringify({ p: state.paths, o: lastOutline, s: smoothLevel });
+  return JSON.stringify({ p: state.paths, s: smoothLevel });
 }
 function applySnapshot(s) {
   const o = JSON.parse(s);
   state.paths = o.p;
-  lastOutline = o.o || null;
   smoothLevel = o.s;
   scheduleRender();
   scheduleBake();
@@ -1391,9 +1442,17 @@ $('import').addEventListener('click', () => {
       return;
     }
     pushHistory();
-    state.paths = [{ anchors: meta.anchors }];
-    lastOutline = null;     // imports fall back to the flat-width bezier preview
-    $('useDrawnWidths').checked = !!meta.useDrawnWidths;
+    // Migrate legacy anchors that carry only `pressure` to absolute
+    // pixel widths via PF's thinning formula, anchored to the saved
+    // strokeWidth. Anchors written by the current code already have
+    // `width` and pass through unchanged.
+    const importBase = meta.strokeWidth != null ? +meta.strokeWidth : 22;
+    const importedAnchors = meta.anchors.map((a) => {
+      if (a.width != null) return a;
+      const press = a.pressure != null ? a.pressure : 0.5;
+      return { ...a, width: importBase * (0.6 + 0.8 * press) };
+    });
+    state.paths = [{ anchors: importedAnchors }];
     smoothLevel = 1.5;
     if (meta.strokeWidth != null) {
       strokeWIn.value = meta.strokeWidth;
@@ -1430,18 +1489,10 @@ $('export').addEventListener('click', async (e) => {
   try {
     const sizeMul = +$('exportSize').value || 1;
     const exportScale = 1.6 * sizeMul;
-    const drawnWidths = $('useDrawnWidths').checked;
-    const bake = (drawnWidths && state.paths[0].anchors.length >= 2)
-      ? window.HyperDrive.bakeFromStroke({
-          stroke: samplePath(state.paths[0], 16),
-          scale: exportScale, padding: 24,
-          baseWidth: +strokeWIn.value, half: 'full',
-        })
-      : window.HyperDrive.bakeFromD({
-          d: pathToD(state.paths[0]),
-          scale: exportScale, padding: 24,
-          strokeWidth: +strokeWIn.value, half: 'full',
-        });
+    const bake = window.HyperDrive.bakeFromStroke({
+      stroke: samplePath(state.paths[0], 16),
+      scale: exportScale, padding: 24, half: 'full',
+    });
     // Render the PNG's static preview using palette[0] at engine offset 0
     // — i.e. the exact frame the embed will display the moment it starts.
     // The engine's formula at off=0, baseStartOff=0 maps palette index `idx`
@@ -1464,7 +1515,6 @@ $('export').addEventListener('click', async (e) => {
       canvas: off,
       indices: bake.indices,
       anchors: state.paths[0].anchors,
-      useDrawnWidths: drawnWidths,
       palettes: playlist,
       activeIdx: 0,            // always boot the embed on palette[0]
       playMode,
@@ -1594,9 +1644,6 @@ seedNameIn.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') { e.preventDefault(); trySaveSeed(); }
 });
 
-$('useDrawnWidths').addEventListener('change', () => {
-  scheduleBake();
-});
 document.querySelectorAll('input[name="mode"]').forEach((r) => {
   r.addEventListener('change', (e) => {
     if (!e.target.checked) return;

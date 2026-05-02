@@ -137,13 +137,13 @@
   }
 
   // ─── bake from a width-bearing stroke ───────────────────────────────────
-  // stroke: array of { x, y, pressure } in path-local coords. baseWidth is
-  // the "neutral" stroke width (matches pressure 0.5); each segment's
-  // lineWidth is scaled by `pressure * 2` so a fully-pressed stroke is 2x
-  // baseWidth and a feather-light one approaches zero. Otherwise mirrors
-  // bakeFromD's mask + index pipeline.
+  // stroke: array of { x, y, width } in path-local coords. width is the
+  // absolute pixel diameter at that sample point. Disc-stamps each
+  // sample with radius = width * scale / 2, so the bake matches what
+  // panel 1 paints from the same samples. Otherwise mirrors bakeFromD's
+  // mask + index pipeline.
   function bakeFromStroke(opts) {
-    const { stroke, scale = 1.6, padding = 24, baseWidth = 18, half = 'first' } = opts || {};
+    const { stroke, scale = 1.6, padding = 24, half = 'first' } = opts || {};
     if (!stroke || stroke.length < 2) throw new Error('Stroke has fewer than 2 points.');
 
     const cumLen = new Array(stroke.length);
@@ -183,30 +183,27 @@
       }
       const u = (L - cumLen[lo]) / (cumLen[hi] - cumLen[lo] || 1);
       const a = stroke[lo], b = stroke[hi];
-      const pa = a.pressure == null ? 0.5 : a.pressure;
-      const pb = b.pressure == null ? 0.5 : b.pressure;
+      const wa = a.width == null ? 22 : a.width;
+      const wb = b.width == null ? 22 : b.width;
       return {
         x: a.x + (b.x - a.x) * u,
         y: a.y + (b.y - a.y) * u,
-        pressure: pa + (pb - pa) * u,
+        width: wa + (wb - wa) * u,
       };
     }
 
     const pts = new Array(TOTAL + 1);
     for (let i = 0; i <= TOTAL; i++) {
       const s = sampleAtLength(lenStart + (i / TOTAL) * lenSpan);
-      pts[i] = { x: s.x * scale + tx, y: s.y * scale + ty, pressure: s.pressure };
+      pts[i] = { x: s.x * scale + tx, y: s.y * scale + ty, width: s.width * scale };
     }
 
-    // Match perfect-freehand's effective width (thinning = 0.4):
-    //   width = baseWidth * (1 - 0.4 * (1 - 2 * pressure))
-    //         = baseWidth * (0.6 + 0.8 * pressure)
-    // Round-capped strokes would let a thicker neighbour's cap engulf
-    // a thinner segment, so we stamp discs at every sample point with
-    // radius = local width / 2. Adjacent same-coloured discs overlap
-    // smoothly; later (higher-index) discs paint over earlier ones at
-    // segment boundaries, which is the desired ordering.
-    const widthAt = (pressure) => baseWidth * scale * (0.6 + 0.8 * pressure);
+    // Anchors carry absolute pixel widths; we stamp discs at every
+    // sample point with radius = local width / 2. Adjacent same-coloured
+    // discs overlap smoothly; later (higher-index) discs paint over
+    // earlier ones at segment boundaries, which is the desired ordering.
+    // (Round-capped strokes would let a thicker neighbour's cap engulf
+    // a thinner segment, so we use discs instead.)
 
     const idxC = document.createElement('canvas'); idxC.width = w; idxC.height = h;
     const ictx = idxC.getContext('2d', { willReadFrequently: true });
@@ -216,7 +213,7 @@
       const base = i * SUBSEG;
       for (let j = 0; j < SUBSEG; j++) {
         const p = pts[base + j];
-        const r = Math.max(0.5, widthAt(p.pressure) / 2);
+        const r = Math.max(0.5, p.width / 2);
         ictx.beginPath();
         ictx.arc(p.x, p.y, r, 0, Math.PI * 2);
         ictx.fill();
@@ -227,7 +224,7 @@
     {
       const last = pts[TOTAL];
       ictx.fillStyle = 'rgb(254,0,0)';
-      const r = Math.max(0.5, widthAt(last.pressure) / 2);
+      const r = Math.max(0.5, last.width / 2);
       ictx.beginPath();
       ictx.arc(last.x, last.y, r, 0, Math.PI * 2);
       ictx.fill();
@@ -239,7 +236,7 @@
     mctx.fillStyle = '#fff';
     for (let i = 0; i <= TOTAL; i++) {
       const p = pts[i];
-      const r = Math.max(0.5, widthAt(p.pressure) / 2 * 0.92);
+      const r = Math.max(0.5, p.width / 2 * 0.92);
       mctx.beginPath();
       mctx.arc(p.x, p.y, r, 0, Math.PI * 2);
       mctx.fill();
