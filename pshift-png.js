@@ -134,10 +134,10 @@
 
   // ─── public encode / decode ───────────────────────────────────────────
   // encode(opts) → Promise<Uint8Array>
-  // opts: { canvas, indices, anchors, rawStroke?, useDrawnWidths?,
+  // opts: { canvas, indices, anchors, useDrawnWidths?,
   //         palettes, activeIdx, playMode, strokeWidth, scale, padding, half }
   async function encode(opts) {
-    const { canvas, indices, anchors, rawStroke, useDrawnWidths,
+    const { canvas, indices, anchors, useDrawnWidths,
             palettes, activeIdx, playMode,
             strokeWidth, scale, padding, half } = opts;
     const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
@@ -149,7 +149,6 @@
       height: canvas.height,
       indices: bytesToBase64(indices),
       anchors,
-      rawStroke: rawStroke || undefined,
       useDrawnWidths: !!useDrawnWidths,
       palettes,
       activeIdx,

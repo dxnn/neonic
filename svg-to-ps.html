@@ -309,8 +309,10 @@ const $ = (id) => document.getElementById(id);
 const state = { paths: [] };
 let liveStroke = null;
 let rawLiveStroke = null;
-let rawPath = null;
 let smoothLevel = 1.5;
+// Cached outline polygon from the most recent live PF call. Panel 1
+// blits this verbatim post-pointerup — no PF re-processing.
+let lastOutline = null;
 let currentRamp = null;
 let stops = [];
 let selectedStop = -1;
@@ -498,33 +500,36 @@ function drawDrawingPanel() {
   const cssW = drawCvs.clientWidth, cssH = drawCvs.clientHeight;
   dctx.clearRect(0, 0, cssW, cssH);
 
-  const w = +strokeWIn.value;
-  const opts = { size: w, thinning: 0.4, smoothing: 0.55, streamline: 0.5 };
   const inkColor = getInk();
 
-  // Live drawing: render the incoming raw points so PF's velocity
-  // simulation drives the visible widths in real time.
   if (rawLiveStroke && rawLiveStroke.length >= 1) {
+    // Live drag: PF generates the outline; cache it for later blits.
+    const w = +strokeWIn.value;
+    const opts = { size: w, thinning: 0.4, smoothing: 0.55, streamline: 0.5 };
     const flat = rawLiveStroke.map(p => [p.x, p.y, p.pressure]);
     const outline = getStroke(flat, { ...opts, last: !activeDrag });
+    lastOutline = outline;
     fillPolygon(dctx, outline, inkColor);
+  } else if (lastOutline && lastOutline.length >= 3) {
+    // Post-pointerup or any redraw (resize, dpr): blit the exact
+    // polygon PF produced on the last live frame. No re-running PF,
+    // no width re-derivation. What you drew is what stays.
+    fillPolygon(dctx, lastOutline, inkColor);
   } else if (state.paths.length > 0 && state.paths[0].anchors.length >= 2) {
-    // After draw / after edit: sample the bezier and render with the
-    // per-anchor pressures interpolated along each segment. This is
-    // the single source of truth — moving handles, adding, removing,
-    // and smoothing anchors all flow through here. We pass
-    // streamline: 0 + simulatePressure: false so PF respects the
-    // pressures we just computed instead of re-simulating from the
-    // (uniform-spaced) sample velocities.
-    const samples = samplePath(state.paths[0], 12);
-    const flat = samples.map(p => [p.x, p.y, p.pressure]);
-    const outline = getStroke(flat, {
-      ...opts, streamline: 0, simulatePressure: false, last: true,
-    });
-    fillPolygon(dctx, outline, inkColor);
-  }
-
-  if (state.paths.length === 0 && !rawLiveStroke) {
+    // No live history (e.g. just imported): fall back to a flat-width
+    // bezier stroke so panel 1 isn't blank.
+    const a = state.paths[0].anchors;
+    dctx.strokeStyle = inkColor;
+    dctx.lineWidth = +strokeWIn.value;
+    dctx.lineCap = 'round'; dctx.lineJoin = 'round';
+    dctx.beginPath();
+    dctx.moveTo(a[0].x, a[0].y);
+    for (let i = 1; i < a.length; i++) {
+      const p = a[i - 1], q = a[i];
+      dctx.bezierCurveTo(p.h2x, p.h2y, q.h1x, q.h1y, q.x, q.y);
+    }
+    dctx.stroke();
+  } else {
     dctx.fillStyle = getMuted();
     dctx.globalAlpha = 0.7;
     dctx.font = '14px ui-sans-serif, system-ui, sans-serif';
@@ -752,13 +757,13 @@ window.addEventListener('pointerup', () => {
   if (drag.kind === 'draw') {
     if (rawLiveStroke && rawLiveStroke.length >= 2) {
       // Run the raw points through PF's velocity-based pressure
-      // simulation so the stored rawPath has the same width variation
-      // the user just saw being drawn. Mouse input arrives with a
-      // flat 0.5 pressure; this step gives faster sections lower
-      // pressure → thinner strokes in both drawing panel and bake.
-      rawPath = simulatePressureFor(rawLiveStroke, +strokeWIn.value);
+      // simulator so the bezier anchors carry the same pressures PF
+      // used during the live drag (so the drawn-widths bake in panel 4
+      // matches what was on screen). The result feeds straight into
+      // the bezier — we don't keep it around as a separate copy.
+      const adjusted = simulatePressureFor(rawLiveStroke, +strokeWIn.value);
       smoothLevel = 1.5;
-      const path = polylineToBezier(rdpSimplify(rawPath, smoothLevel));
+      const path = polylineToBezier(rdpSimplify(adjusted, smoothLevel));
       if (path) state.paths = [path];
     }
     rawLiveStroke = null;
@@ -1296,7 +1301,7 @@ $('clear').addEventListener('click', () => {
   pushHistory();
   state.paths = [];
   rawLiveStroke = null;
-  rawPath = null;
+  lastOutline = null;
   smoothLevel = 1.5;
   if (engine) { engine.stop(); engine = null; }
   outCvs.width = 1; outCvs.height = 1;
@@ -1305,12 +1310,12 @@ $('clear').addEventListener('click', () => {
 });
 
 function snapshot() {
-  return JSON.stringify({ p: state.paths, r: rawPath, s: smoothLevel });
+  return JSON.stringify({ p: state.paths, o: lastOutline, s: smoothLevel });
 }
 function applySnapshot(s) {
   const o = JSON.parse(s);
   state.paths = o.p;
-  rawPath = o.r;
+  lastOutline = o.o || null;
   smoothLevel = o.s;
   scheduleRender();
   scheduleBake();
@@ -1346,10 +1351,16 @@ window.addEventListener('keydown', (e) => {
 });
 
 $('smooth').addEventListener('click', () => {
-  if (!rawPath || rawPath.length < 2) return;
+  if (!state.paths.length || state.paths[0].anchors.length < 2) return;
   pushHistory();
   smoothLevel = Math.min(smoothLevel * 1.8, 60);
-  const path = polylineToBezier(rdpSimplify(rawPath, smoothLevel));
+  // Re-fit from the *current* bezier — sample it as a polyline and
+  // RDP at the new (more aggressive) epsilon. Each click simplifies
+  // what's already on screen rather than rolling back to the original.
+  const samples = samplePath(state.paths[0], 12);
+  if (samples.length < 2) return;
+  const simplified = rdpSimplify(samples, smoothLevel);
+  const path = polylineToBezier(simplified);
   if (path) state.paths = [path];
   scheduleRender();
   scheduleBake();
@@ -1381,12 +1392,7 @@ $('import').addEventListener('click', () => {
     }
     pushHistory();
     state.paths = [{ anchors: meta.anchors }];
-    if (Array.isArray(meta.rawStroke) && meta.rawStroke.length >= 2) {
-      // Compact triple form: [x, y, pressure] — restore to objects.
-      rawPath = meta.rawStroke.map((p) => ({ x: p[0], y: p[1], pressure: p[2] }));
-    } else {
-      rawPath = meta.anchors.map((a) => ({ x: a.x, y: a.y, pressure: 0.5 }));
-    }
+    lastOutline = null;     // imports fall back to the flat-width bezier preview
     $('useDrawnWidths').checked = !!meta.useDrawnWidths;
     smoothLevel = 1.5;
     if (meta.strokeWidth != null) {
@@ -1458,9 +1464,6 @@ $('export').addEventListener('click', async (e) => {
       canvas: off,
       indices: bake.indices,
       anchors: state.paths[0].anchors,
-      rawStroke: drawnWidths && rawPath ? rawPath.map(p => [
-        +p.x.toFixed(2), +p.y.toFixed(2), +(p.pressure ?? 0.5).toFixed(3),
-      ]) : null,
       useDrawnWidths: drawnWidths,
       palettes: playlist,
       activeIdx: 0,            // always boot the embed on palette[0]
