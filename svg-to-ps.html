@@ -501,11 +501,13 @@ function drawDrawingPanel() {
   } else if (rawPath && rawPath.length >= 2) {
     // After pointerup: render the stored rawPath (PF-adjusted pressures)
     // so post-stroke view keeps the same widths the user saw drawn.
-    // We don't sample the bezier here because uniform t-step sampling
-    // would erase the velocity information PF needs.
+    // rawPath was already streamlined and pressure-simulated in
+    // simulatePressureFor, so pass streamline: 0 and simulatePressure:
+    // false here — otherwise PF re-smooths the points and the velocity
+    // variance that drove the visible widths gets washed out.
     const flat = rawPath.map(p => [p.x, p.y, p.pressure]);
     const outline = getStroke(flat, {
-      ...opts, simulatePressure: false, last: true,
+      ...opts, streamline: 0, simulatePressure: false, last: true,
     });
     fillPolygon(dctx, outline, inkColor);
   }
