@@ -406,6 +406,11 @@ function polylineToBezier(points) {
       x: p.x, y: p.y,
       h1x: p.x - tx, h1y: p.y - ty,
       h2x: p.x + tx, h2y: p.y + ty,
+      // Carry the input point's pressure onto the anchor so widths
+      // survive bezier editing. polylineToBezier is fed PF-processed
+      // (velocity-simulated) points, so anchor pressures already
+      // reflect drawing speed.
+      pressure: p.pressure == null ? 0.5 : p.pressure,
     };
   }
   return { anchors: a };
@@ -421,11 +426,16 @@ function bezierPoint(p, q, t) {
 function samplePath(path, perSeg) {
   const a = path.anchors;
   if (a.length < 2) return [];
-  const out = [{ x: a[0].x, y: a[0].y }];
+  const pressureOf = (anchor) => (anchor.pressure == null ? 0.5 : anchor.pressure);
+  const out = [{ x: a[0].x, y: a[0].y, pressure: pressureOf(a[0]) }];
   for (let i = 1; i < a.length; i++) {
     const p = a[i-1], q = a[i];
+    const pp = pressureOf(p), qp = pressureOf(q);
     for (let k = 1; k <= perSeg; k++) {
-      out.push(bezierPoint(p, q, k / perSeg));
+      const t = k / perSeg;
+      const pt = bezierPoint(p, q, t);
+      pt.pressure = pp + (qp - pp) * t;
+      out.push(pt);
     }
   }
   return out;
@@ -492,20 +502,22 @@ function drawDrawingPanel() {
   const opts = { size: w, thinning: 0.4, smoothing: 0.55, streamline: 0.5 };
   const inkColor = getInk();
 
-  // Live drawing in progress: render the raw incoming points so PF's
-  // velocity simulation drives the visible widths in real time.
+  // Live drawing: render the incoming raw points so PF's velocity
+  // simulation drives the visible widths in real time.
   if (rawLiveStroke && rawLiveStroke.length >= 1) {
     const flat = rawLiveStroke.map(p => [p.x, p.y, p.pressure]);
     const outline = getStroke(flat, { ...opts, last: !activeDrag });
     fillPolygon(dctx, outline, inkColor);
-  } else if (rawPath && rawPath.length >= 2) {
-    // After pointerup: render the stored rawPath (PF-adjusted pressures)
-    // so post-stroke view keeps the same widths the user saw drawn.
-    // rawPath was already streamlined and pressure-simulated in
-    // simulatePressureFor, so pass streamline: 0 and simulatePressure:
-    // false here — otherwise PF re-smooths the points and the velocity
-    // variance that drove the visible widths gets washed out.
-    const flat = rawPath.map(p => [p.x, p.y, p.pressure]);
+  } else if (state.paths.length > 0 && state.paths[0].anchors.length >= 2) {
+    // After draw / after edit: sample the bezier and render with the
+    // per-anchor pressures interpolated along each segment. This is
+    // the single source of truth — moving handles, adding, removing,
+    // and smoothing anchors all flow through here. We pass
+    // streamline: 0 + simulatePressure: false so PF respects the
+    // pressures we just computed instead of re-simulating from the
+    // (uniform-spaced) sample velocities.
+    const samples = samplePath(state.paths[0], 12);
+    const flat = samples.map(p => [p.x, p.y, p.pressure]);
     const outline = getStroke(flat, {
       ...opts, streamline: 0, simulatePressure: false, last: true,
     });
@@ -677,10 +689,13 @@ function splitBezierAt(path, segIdx, t) {
   const F = lerp(D, E);
   a[segIdx].h2x = A.x;       a[segIdx].h2y = A.y;
   a[segIdx + 1].h1x = C.x;   a[segIdx + 1].h1y = C.y;
+  const pa = a[segIdx].pressure == null ? 0.5 : a[segIdx].pressure;
+  const pb = a[segIdx + 1].pressure == null ? 0.5 : a[segIdx + 1].pressure;
   a.splice(segIdx + 1, 0, {
     x: F.x, y: F.y,
     h1x: D.x, h1y: D.y,
     h2x: E.x, h2y: E.y,
+    pressure: pa + (pb - pa) * t,
   });
 }
 
@@ -794,9 +809,13 @@ function rebake() {
   const drawnWidths = $('useDrawnWidths').checked;
   let baked;
   try {
-    if (drawnWidths && rawPath && rawPath.length >= 2) {
+    if (drawnWidths && state.paths[0].anchors.length >= 2) {
+      // Sample the (possibly edited) bezier finely, feed the per-anchor
+      // pressures through to the engine. Same path-shape → same panel-4
+      // shape as the no-widths bake, but with the drawn-width profile.
       baked = window.HyperDrive.bakeFromStroke({
-        stroke: rawPath, scale: 1.6, padding: 24,
+        stroke: samplePath(state.paths[0], 16),
+        scale: 1.6, padding: 24,
         baseWidth: +strokeWIn.value, half: 'full',
       });
     } else {
@@ -1406,9 +1425,10 @@ $('export').addEventListener('click', async (e) => {
     const sizeMul = +$('exportSize').value || 1;
     const exportScale = 1.6 * sizeMul;
     const drawnWidths = $('useDrawnWidths').checked;
-    const bake = (drawnWidths && rawPath && rawPath.length >= 2)
+    const bake = (drawnWidths && state.paths[0].anchors.length >= 2)
       ? window.HyperDrive.bakeFromStroke({
-          stroke: rawPath, scale: exportScale, padding: 24,
+          stroke: samplePath(state.paths[0], 16),
+          scale: exportScale, padding: 24,
           baseWidth: +strokeWIn.value, half: 'full',
         })
       : window.HyperDrive.bakeFromD({
