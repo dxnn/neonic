@@ -83,6 +83,9 @@
   }
   canvas#draw { cursor: crosshair; }
   canvas#bezier { cursor: default; }
+  canvas#bezier.pan-mode { cursor: grab; }
+  canvas#bezier.panning { cursor: grabbing; }
+  .zoom-btn { padding: 4px 8px; font-family: ui-monospace, monospace; }
   canvas#ramp {
     display: block; width: 100%; height: 64px;
     background: #fafaf6; border-radius: 6px;
@@ -305,13 +308,17 @@
       <button class="ghost" id="undo">Undo</button>
       <button class="ghost" id="redo">Redo</button>
       <button class="ghost" id="smooth">Smooth</button>
-      <label title="Tap mode: drag handles, add anchor at point, or remove anchor">Tap
+      <label title="Tap mode: drag handles, add anchor at point, remove anchor, or pan the view">Tap
         <select id="bezierMode">
           <option value="drag">drag</option>
           <option value="add">add anchor</option>
           <option value="remove">remove anchor</option>
+          <option value="pan">pan</option>
         </select>
       </label>
+      <button class="ghost zoom-btn" id="zoomOut" title="Zoom out">−</button>
+      <button class="ghost zoom-btn" id="zoomIn" title="Zoom in">+</button>
+      <button class="ghost" id="zoomFit" title="Reset to auto-fit">fit</button>
       <span class="meta" id="bez-meta"></span>
     </div>
   </section>
@@ -624,12 +631,20 @@ function drawDrawingPanel() {
   }
 }
 
-// Logical → CSS-coords transform for panel 2. Recomputed every frame
-// from the path's bbox (anchors + tangent handles + width handles)
-// so a handle dragged offscreen is reframed back into view.
+// Logical → CSS-coords transform for panel 2. Two modes:
+//   bezierManualView === null  → recompute from path bbox each frame
+//                                (auto-fit, never zooms past 1×).
+//   bezierManualView is set    → use it as-is. The user has explicitly
+//                                zoomed or panned and we don't fight them.
+// "fit" button resets to null. New draw / Clear also reset.
 let bezierViewT = { scale: 1, tx: 0, ty: 0 };
+let bezierManualView = null;
 
 function computeBezierViewT(cssW, cssH) {
+  if (bezierManualView) {
+    bezierViewT = { ...bezierManualView };
+    return;
+  }
   if (state.paths.length === 0) {
     bezierViewT = { scale: 1, tx: 0, ty: 0 };
     return;
@@ -655,6 +670,29 @@ function computeBezierViewT(cssW, cssH) {
   const tx = pad + (fitW - contentW * scale) / 2 - minX * scale;
   const ty = pad + (fitH - contentH * scale) / 2 - minY * scale;
   bezierViewT = { scale, tx, ty };
+}
+
+// Switch into manual-view mode if not already there. Seeds with the
+// current auto-fit transform so the first manipulation isn't a jump.
+function ensureManualView() {
+  if (!bezierManualView) {
+    bezierManualView = { ...bezierViewT };
+  }
+  return bezierManualView;
+}
+
+// Zoom centred on a CSS-coord point, preserving the logical point
+// under the cursor. Solving for the new tx/ty:
+//   logical = (cssX - tx) / scale
+//   newCss  = logical * newScale + newTx        (= cssX, by construction)
+function zoomAt(cssX, cssY, factor) {
+  const v = ensureManualView();
+  const logicalX = (cssX - v.tx) / v.scale;
+  const logicalY = (cssY - v.ty) / v.scale;
+  v.scale = Math.max(0.1, Math.min(10, v.scale * factor));
+  v.tx = cssX - logicalX * v.scale;
+  v.ty = cssY - logicalY * v.scale;
+  scheduleRender();
 }
 
 function pointerToLogical(clientX, clientY) {
@@ -727,7 +765,9 @@ function drawBezierPanel() {
   }
 
   const totalAnchors = state.paths.reduce((n, p) => n + p.anchors.length, 0);
-  const zoomNote = T.scale < 0.999 ? ` · ${(T.scale * 100).toFixed(0)}%` : '';
+  const zoomNote = Math.abs(T.scale - 1) > 0.005
+    ? ` · ${(T.scale * 100).toFixed(0)}%`
+    : '';
   bezMeta.textContent = `${totalAnchors} anchors${zoomNote}`;
 }
 
@@ -814,6 +854,9 @@ drawCvs.addEventListener('pointerdown', (e) => {
   liveStrokeType = e.pointerType || 'mouse';
   rawLiveStroke = [eventToCanvasPoint(e, drawCvs)];
   activeDrag = { kind: 'draw' };
+  // Fresh stroke → drop any manual zoom/pan so panel 2 reframes the
+  // new path automatically.
+  bezierManualView = null;
   scheduleRender();
 });
 
@@ -823,10 +866,53 @@ drawCvs.addEventListener('pointerdown', (e) => {
 let bezierMode = 'drag';
 $('bezierMode').addEventListener('change', (e) => {
   bezierMode = e.target.value;
+  bezCvs.classList.toggle('pan-mode', bezierMode === 'pan');
+});
+
+// Wheel = zoom centred on cursor. Trackpad two-finger drag also fires
+// wheel events; treating both as zoom is fine because pan has its own
+// dedicated mode + middle-click affordance.
+bezCvs.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const r = bezCvs.getBoundingClientRect();
+  const cssX = e.clientX - r.left;
+  const cssY = e.clientY - r.top;
+  // exp(-deltaY/200) → smooth zoom that handles fast trackpad scrolls
+  // without clamping. Negate so scrolling up zooms in.
+  const factor = Math.exp(-e.deltaY / 200);
+  zoomAt(cssX, cssY, factor);
+}, { passive: false });
+
+$('zoomIn').addEventListener('click', () => {
+  zoomAt(bezCvs.clientWidth / 2, bezCvs.clientHeight / 2, 1.5);
+});
+$('zoomOut').addEventListener('click', () => {
+  zoomAt(bezCvs.clientWidth / 2, bezCvs.clientHeight / 2, 1 / 1.5);
+});
+$('zoomFit').addEventListener('click', () => {
+  bezierManualView = null;
+  scheduleRender();
 });
 
 bezCvs.addEventListener('pointerdown', (e) => {
   e.preventDefault();
+
+  // Pan: middle-click anywhere, or any-button when bezierMode is 'pan'.
+  // We seed manual-view from the current auto-fit so the very first
+  // pan starts from where the user already sees things.
+  if (e.button === 1 || bezierMode === 'pan') {
+    ensureManualView();
+    activeDrag = {
+      kind: 'pan',
+      startCssX: e.clientX,
+      startCssY: e.clientY,
+      startTx: bezierManualView.tx,
+      startTy: bezierManualView.ty,
+    };
+    bezCvs.classList.add('panning');
+    return;
+  }
+
   const { x, y } = pointerToLogical(e.clientX, e.clientY);
 
   const wantRemove = e.ctrlKey || e.metaKey || bezierMode === 'remove';
@@ -973,6 +1059,12 @@ window.addEventListener('pointermove', (e) => {
     const t = Math.max(0, Math.min(1, 1 - (e.clientX - r.left) / cssW));
     playlist[activeDrag.idx].stops[activeDrag.stopIdx].t = t;
     rebuildRamp();
+  } else if (activeDrag.kind === 'pan') {
+    const dx = e.clientX - activeDrag.startCssX;
+    const dy = e.clientY - activeDrag.startCssY;
+    bezierManualView.tx = activeDrag.startTx + dx;
+    bezierManualView.ty = activeDrag.startTy + dy;
+    scheduleRender();
   }
 });
 
@@ -1004,12 +1096,17 @@ window.addEventListener('pointerup', () => {
     scheduleBake();
   } else if (drag.kind === 'ramp') {
     /* ramp drag is finalized by rebuildRamp on each move */
+  } else if (drag.kind === 'pan') {
+    bezCvs.classList.remove('panning');
   }
 });
 
 window.addEventListener('pointercancel', () => {
   if (activeDrag && activeDrag.kind === 'draw') {
     rawLiveStroke = null;
+  }
+  if (activeDrag && activeDrag.kind === 'pan') {
+    bezCvs.classList.remove('panning');
   }
   activeDrag = null;
 });
@@ -1759,6 +1856,7 @@ $('clear').addEventListener('click', () => {
   state.paths = [];
   rawLiveStroke = null;
   smoothLevel = 1.5;
+  bezierManualView = null;
   if (engine) { engine.stop(); engine = null; }
   outCvs.width = 1; outCvs.height = 1;
   bakeMeta.textContent = '';
