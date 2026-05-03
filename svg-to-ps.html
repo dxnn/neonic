@@ -346,6 +346,7 @@ const $ = (id) => document.getElementById(id);
 const state = { paths: [] };
 let liveStroke = null;
 let rawLiveStroke = null;
+let liveStrokeType = 'mouse';   // 'pen' uses real pressure; mouse/finger triggers PF's simulator
 let smoothLevel = 1.5;
 let currentRamp = null;
 let selectedStop = -1;
@@ -384,10 +385,18 @@ const bctx = bezCvs.getContext('2d');
 // ─── Geometry ────────────────────────────────────────────────────────────
 function eventToCanvasPoint(e, canvas) {
   const r = canvas.getBoundingClientRect();
+  // Pen input reports real pressure (and may legitimately be 0 with a
+  // very light contact). Mouse / finger have no pressure data, so we
+  // substitute 0.5 — PF's velocity simulator picks up the work from
+  // there. Without this guard, `e.pressure || 0.5` collapses real
+  // 0-pressure samples to 0.5 and masks the start of an Apple Pencil
+  // stroke as "neutral".
+  const isPen = e.pointerType === 'pen';
+  const pressure = isPen ? (e.pressure ?? 0) : (e.pressure || 0.5);
   return {
     x: e.clientX - r.left,
     y: e.clientY - r.top,
-    pressure: e.pressure || 0.5,
+    pressure,
   };
 }
 
@@ -431,17 +440,18 @@ function polylineToBezier(points) {
     const next = points[i + 1] || p;
     const tx = (next.x - prev.x) / 6;
     const ty = (next.y - prev.y) / 6;
-    // Anchors carry absolute pixel widths. processRawStroke supplies
-    // them at draw time; legacy imports (with `pressure`) get migrated
-    // to widths on the way in.
+    // Anchors carry both `pressure` (the source of truth — preserved
+    // across thinning changes) and `width` (the cached display value
+    // derived from pressure × path.size × thinning formula).
+    const pressure = p.pressure != null ? p.pressure : 0.5;
     const w = p.width != null ? p.width
-            : p.pressure != null ? 22 * (0.6 + 0.8 * p.pressure)
-            : 22;
+            : 22 * (0.6 + 0.8 * pressure);
     a[i] = {
       x: p.x, y: p.y,
       h1x: p.x - tx, h1y: p.y - ty,
       h2x: p.x + tx, h2y: p.y + ty,
       width: w,
+      pressure,
     };
   }
   return { anchors: a };
@@ -458,14 +468,20 @@ function samplePath(path, perSeg) {
   const a = path.anchors;
   if (a.length < 2) return [];
   const widthOf = (anchor) => (anchor.width == null ? 22 : anchor.width);
-  const out = [{ x: a[0].x, y: a[0].y, width: widthOf(a[0]) }];
+  const pressureOf = (anchor) => (anchor.pressure == null ? 0.5 : anchor.pressure);
+  const out = [{
+    x: a[0].x, y: a[0].y,
+    width: widthOf(a[0]), pressure: pressureOf(a[0]),
+  }];
   for (let i = 1; i < a.length; i++) {
     const p = a[i-1], q = a[i];
     const pw = widthOf(p), qw = widthOf(q);
+    const pp = pressureOf(p), qp = pressureOf(q);
     for (let k = 1; k <= perSeg; k++) {
       const t = k / perSeg;
       const pt = bezierPoint(p, q, t);
       pt.width = pw + (qw - pw) * t;
+      pt.pressure = pp + (qp - pp) * t;
       out.push(pt);
     }
   }
@@ -543,21 +559,24 @@ function pfSimulatePressure(strokePoints, size) {
   });
 }
 
-// Process a freshly-drawn raw stroke into {x, y, width}[] suitable for
-// polylineToBezier — same pipeline used to render the live PF outline,
-// then convert pressure to absolute pixel width via PF's thinning
-// formula:
+// Process a freshly-drawn raw stroke into {x, y, pressure, width}[]
+// suitable for polylineToBezier. PF's thinning formula is:
 //   width = size * (1 - thinning + 2 * thinning * pressure)
-// thinning=0 → uniform; thinning=0.4 (the historical default) reduces
-// to size*(0.6 + 0.8*pressure); thinning=1 swings between 0 and 2*size.
-function processRawStroke(rawStroke, size, thinning) {
+// thinning=0 → uniform; thinning=0.4 (PF's historical default) reduces
+// to size*(0.6 + 0.8*pressure); thinning=1 swings 0..2*size.
+//
+// simulate=true: input pressures are flat 0.5 (mouse / finger), so we
+// run PF's iterative velocity simulator to derive pressures.
+// simulate=false: input pressures are real (pen), so we keep them.
+function processRawStroke(rawStroke, size, thinning, simulate) {
   const flat = rawStroke.map(p => [p.x, p.y, p.pressure]);
   const sp = getStrokePoints(flat, { size, streamline: 0.5, last: true });
   if (sp.length < 2) return [];
-  const simulated = pfSimulatePressure(sp, size);
-  return simulated.map(p => ({
+  const adjusted = simulate ? pfSimulatePressure(sp, size) : sp;
+  return adjusted.map(p => ({
     x: p.point[0],
     y: p.point[1],
+    pressure: p.pressure,
     width: Math.max(0.5, size * (1 - thinning + 2 * thinning * p.pressure)),
   }));
 }
@@ -570,9 +589,17 @@ function drawDrawingPanel() {
   const inkColor = getInk();
 
   if (rawLiveStroke && rawLiveStroke.length >= 1) {
-    // Live drag: PF outline polygon. Same call as before.
+    // Live drag: PF outline polygon. simulatePressure is OFF for pen
+    // (use real per-point pressure) and ON for mouse / finger (where
+    // input is flat 0.5 and PF's velocity simulator does the work).
     const w = +strokeWIn.value;
-    const opts = { size: w, thinning: +thinningIn.value, smoothing: 0.55, streamline: 0.5 };
+    const opts = {
+      size: w,
+      thinning: +thinningIn.value,
+      smoothing: 0.55,
+      streamline: 0.5,
+      simulatePressure: liveStrokeType !== 'pen',
+    };
     const flat = rawLiveStroke.map(p => [p.x, p.y, p.pressure]);
     const outline = getStroke(flat, { ...opts, last: !activeDrag });
     fillPolygon(dctx, outline, inkColor);
@@ -704,6 +731,17 @@ function drawBezierPanel() {
   bezMeta.textContent = `${totalAnchors} anchors${zoomNote}`;
 }
 
+// Recompute every anchor's display width from its pressure given the
+// path's base size and the current thinning. Called whenever thinning
+// or the stroke slider moves.
+function recomputeWidths(path, thinning) {
+  const size = path.size || 22;
+  for (const a of path.anchors) {
+    const p = a.pressure == null ? 0.5 : a.pressure;
+    a.width = Math.max(0.5, size * (1 - thinning + 2 * thinning * p));
+  }
+}
+
 // Compute the perpendicular axis at an anchor (from h1→h2 tangent),
 // and the width handle's position offset along it by 2× the width
 // (1 px of drag = 0.5 px of width change — sits well outside the
@@ -773,6 +811,7 @@ drawCvs.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   pushHistory();
   state.paths = [];
+  liveStrokeType = e.pointerType || 'mouse';
   rawLiveStroke = [eventToCanvasPoint(e, drawCvs)];
   activeDrag = { kind: 'draw' };
   scheduleRender();
@@ -867,11 +906,14 @@ function splitBezierAt(path, segIdx, t) {
   a[segIdx + 1].h1x = C.x;   a[segIdx + 1].h1y = C.y;
   const wa = a[segIdx].width == null ? 22 : a[segIdx].width;
   const wb = a[segIdx + 1].width == null ? 22 : a[segIdx + 1].width;
+  const pa = a[segIdx].pressure == null ? 0.5 : a[segIdx].pressure;
+  const pb = a[segIdx + 1].pressure == null ? 0.5 : a[segIdx + 1].pressure;
   a.splice(segIdx + 1, 0, {
     x: F.x, y: F.y,
     h1x: D.x, h1y: D.y,
     h2x: E.x, h2y: E.y,
     width: wa + (wb - wa) * t,
+    pressure: pa + (pb - pa) * t,
   });
 }
 
@@ -905,7 +947,19 @@ window.addEventListener('pointermove', (e) => {
       // new width is |projection| / 2.
       const wh = widthHandlePos(a);
       const proj = (x - a.x) * wh.perpX + (y - a.y) * wh.perpY;
-      a.width = Math.max(2, Math.min(200, Math.abs(proj) / 2));
+      const newWidth = Math.max(2, Math.min(200, Math.abs(proj) / 2));
+      a.width = newWidth;
+      // Invert the thinning formula so the explicit width survives
+      // future thinning changes. At thinning≈0 the formula is
+      // degenerate (width = size for any pressure), so the drag
+      // persists only until the next thinning / stroke-slider tweak —
+      // acceptable since uniform widths can't carry per-anchor variation.
+      const path = state.paths[activeDrag.pi];
+      const size = path.size || 22;
+      const thinning = +thinningIn.value;
+      if (thinning > 0.001) {
+        a.pressure = (newWidth / size - (1 - thinning)) / (2 * thinning);
+      }
     }
     scheduleRender();
     scheduleBake();
@@ -932,10 +986,16 @@ window.addEventListener('pointerup', () => {
       // and convert pressure → absolute pixel width using PF's thinning
       // formula. The bezier anchors carry widths from here on; the
       // raw input is discarded.
-      const processed = processRawStroke(rawLiveStroke, +strokeWIn.value, +thinningIn.value);
+      const size = +strokeWIn.value;
+      const thinning = +thinningIn.value;
+      const simulate = liveStrokeType !== 'pen';
+      const processed = processRawStroke(rawLiveStroke, size, thinning, simulate);
       smoothLevel = 1.5;
       const path = polylineToBezier(rdpSimplify(processed, smoothLevel));
-      if (path) state.paths = [path];
+      if (path) {
+        path.size = size;   // base size for thinning / stroke-slider recompute
+        state.paths = [path];
+      }
     }
     rawLiveStroke = null;
     scheduleRender();
@@ -1745,7 +1805,10 @@ $('smooth').addEventListener('click', () => {
   if (samples.length < 2) return;
   const simplified = rdpSimplify(samples, smoothLevel);
   const path = polylineToBezier(simplified);
-  if (path) state.paths = [path];
+  if (path) {
+    path.size = state.paths[0].size || +strokeWIn.value;
+    state.paths = [path];
+  }
   scheduleRender();
   scheduleBake();
 });
@@ -1775,21 +1838,37 @@ $('import').addEventListener('click', () => {
       return;
     }
     pushHistory();
-    // Migrate legacy anchors that carry only `pressure` to absolute
-    // pixel widths via PF's thinning formula, anchored to the saved
-    // strokeWidth. Anchors written by the current code already have
-    // `width` and pass through unchanged.
+    // Anchors in modern exports carry both pressure and width.
+    // Legacy exports may have only one; we fill the other in:
+    //   - width but no pressure → invert PF's historical thinning=0.4
+    //     formula to recover pressure.
+    //   - pressure but no width → forward the formula at thinning=0.4.
+    //   - neither → uniform (pressure 0.5, width = strokeWidth).
     const importBase = meta.strokeWidth != null ? +meta.strokeWidth : 22;
     const importedAnchors = meta.anchors.map((a) => {
-      if (a.width != null) return a;
-      const press = a.pressure != null ? a.pressure : 0.5;
-      return { ...a, width: importBase * (0.6 + 0.8 * press) };
+      const out = { ...a };
+      if (out.pressure == null) {
+        if (out.width != null) {
+          out.pressure = (out.width / importBase - 0.6) / 0.8;
+        } else {
+          out.pressure = 0.5;
+        }
+      }
+      if (out.width == null) {
+        out.width = importBase * (0.6 + 0.8 * out.pressure);
+      }
+      return out;
     });
-    state.paths = [{ anchors: importedAnchors }];
+    state.paths = [{ anchors: importedAnchors, size: importBase }];
+    // Align the imported widths to the current thinning slider — the
+    // saved widths assumed thinning=0.4, so this reapplies whatever
+    // the editor is set to now.
+    recomputeWidths(state.paths[0], +thinningIn.value);
     smoothLevel = 1.5;
     if (meta.strokeWidth != null) {
       strokeWIn.value = meta.strokeWidth;
       strokeWVal.textContent = meta.strokeWidth;
+      strokeWLast = +meta.strokeWidth;
     }
     playlist.length = 0;
     for (const p of meta.palettes) {
@@ -1855,7 +1934,9 @@ $('export').addEventListener('click', async (e) => {
       palettes: playlist,
       activeIdx: 0,            // always boot the embed on palette[0]
       playMode,
-      strokeWidth: +strokeWIn.value,
+      // path.size is the base for thinning recompute; slider value is
+      // a fallback for very old paths that predate path.size.
+      strokeWidth: state.paths[0].size != null ? state.paths[0].size : +strokeWIn.value,
       scale: exportScale,
       padding: 24,
       half: 'full',
@@ -1906,27 +1987,31 @@ $('record').addEventListener('click', async (e) => {
   }
 });
 
-// Thinning is read fresh on each draw and on each processRawStroke
-// call, so the slider only affects future strokes (existing anchor
-// widths are absolute pixels and don't carry their original pressure).
+// Thinning recompute: each anchor's pressure is preserved; only the
+// width formula's curve changes. Because width = path.size * formula,
+// reapplying with a new thinning gives the per-anchor variation the
+// user expects.
 thinningIn.addEventListener('input', () => {
   thinningVal.textContent = thinningIn.value;
+  if (state.paths.length && state.paths[0].anchors) {
+    recomputeWidths(state.paths[0], +thinningIn.value);
+    scheduleBake();
+  }
   scheduleRender();
 });
 
-// Slider value at the last input event. We scale anchor widths by the
-// ratio (new / old) on each change so dragging the slider grows /
-// shrinks an existing path linearly. Future fresh draws use the
-// slider value as PF's input size.
+// Stroke slider scales path.size by ratio (new / old). recomputeWidths
+// then rescales every anchor's width linearly. Future fresh draws
+// still use the slider value as PF's input size.
 let strokeWLast = +strokeWIn.value;
 strokeWIn.addEventListener('input', () => {
   const v = +strokeWIn.value;
   strokeWVal.textContent = strokeWIn.value;
   if (v !== strokeWLast && state.paths.length && state.paths[0].anchors) {
+    const path = state.paths[0];
     const ratio = v / strokeWLast;
-    for (const a of state.paths[0].anchors) {
-      if (a.width != null) a.width = Math.max(2, Math.min(200, a.width * ratio));
-    }
+    path.size = (path.size || strokeWLast) * ratio;
+    recomputeWidths(path, +thinningIn.value);
   }
   strokeWLast = v;
   scheduleRender();
