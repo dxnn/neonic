@@ -2033,6 +2033,9 @@ function importFromPshiftPng(buf) {
     anchors: importedAnchors,
     size: importBase,
     strokeWidth: meta.strokeWidth,
+    // Legacy exports lacked saved thinning; their widths assumed PF's
+    // historical default of 0.4 baked into the formula.
+    thinning: meta.thinning != null ? +meta.thinning : 0.4,
     palettes: Array.isArray(meta.palettes) && meta.palettes.length ? meta.palettes : null,
     activeIdx: meta.activeIdx,
     playMode: meta.playMode,
@@ -2042,7 +2045,6 @@ function importFromPshiftPng(buf) {
 function applyImport(imp) {
   pushHistory();
   state.paths = [{ anchors: imp.anchors, size: imp.size }];
-  recomputeWidths(state.paths[0], +thinningIn.value);
   smoothLevel = 1.5;
   if (imp.strokeWidth != null) {
     strokeWIn.value = imp.strokeWidth;
@@ -2051,6 +2053,14 @@ function applyImport(imp) {
   } else {
     strokeWLast = +strokeWIn.value;
   }
+  // Restore thinning before recomputing widths so the recompute is
+  // lossless: saved widths satisfy width = size × formula(pressure,
+  // savedThinning), and we evaluate the formula at that same value.
+  if (imp.thinning != null) {
+    thinningIn.value = String(imp.thinning);
+    thinningVal.textContent = String(imp.thinning);
+  }
+  recomputeWidths(state.paths[0], +thinningIn.value);
   // Replace the playlist only when the import provided one. Imports
   // without palette data (SVG, or partial pshift) keep whatever
   // playlist the user already had.
@@ -2151,6 +2161,10 @@ $('export').addEventListener('click', async (e) => {
       // path.size is the base for thinning recompute; slider value is
       // a fallback for very old paths that predate path.size.
       strokeWidth: state.paths[0].size != null ? state.paths[0].size : +strokeWIn.value,
+      // Persist thinning so import can restore the slider — without
+      // this, recompute on load shifts widths to whatever the slider
+      // happens to be set to.
+      thinning: +thinningIn.value,
       scale: exportScale,
       padding: 24,
       half: 'full',

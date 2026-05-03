@@ -135,11 +135,15 @@
   // ─── public encode / decode ───────────────────────────────────────────
   // encode(opts) → Promise<Uint8Array>
   // opts: { canvas, indices, anchors,
-  //         palettes, activeIdx, playMode, strokeWidth, scale, padding, half }
+  //         palettes, activeIdx, playMode,
+  //         strokeWidth, thinning, scale, padding, half }
+  // `thinning` records the slider value at export time so import can
+  // restore it; without that, anchor widths drift on re-load because
+  // the formula reapplies at whatever the slider happens to be.
   async function encode(opts) {
     const { canvas, indices, anchors,
             palettes, activeIdx, playMode,
-            strokeWidth, scale, padding, half } = opts;
+            strokeWidth, thinning, scale, padding, half } = opts;
     const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
     if (!blob) throw new Error('canvas.toBlob returned null');
     const pngBytes = new Uint8Array(await blob.arrayBuffer());
@@ -152,7 +156,7 @@
       palettes,
       activeIdx,
       playMode,
-      strokeWidth, scale, padding, half,
+      strokeWidth, thinning, scale, padding, half,
     };
     return injectIText(pngBytes, 'pshift', JSON.stringify(meta));
   }
