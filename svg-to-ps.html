@@ -273,6 +273,10 @@
         <input id="strokeW" type="range" min="6" max="64" value="11" />
         <span id="strokeW-val">11</span>
       </label>
+      <label title="0 = uniform width; 1 = max speed-based variation">Thinning
+        <input id="thinning" type="range" min="0" max="1" step="0.05" value="0.4" />
+        <span id="thinning-val">0.4</span>
+      </label>
     </div>
   </section>
 
@@ -369,6 +373,8 @@ const bezCvs     = $('bezier');
 const outCvs     = $('out');
 const strokeWIn  = $('strokeW');
 const strokeWVal = $('strokeW-val');
+const thinningIn = $('thinning');
+const thinningVal = $('thinning-val');
 const bakeMeta   = $('bake-meta');
 const bezMeta    = $('bez-meta');
 
@@ -540,8 +546,11 @@ function pfSimulatePressure(strokePoints, size) {
 // Process a freshly-drawn raw stroke into {x, y, width}[] suitable for
 // polylineToBezier — same pipeline used to render the live PF outline,
 // then convert pressure to absolute pixel width via PF's thinning
-// formula (thinning 0.4 → width = size * (0.6 + 0.8 * pressure)).
-function processRawStroke(rawStroke, size) {
+// formula:
+//   width = size * (1 - thinning + 2 * thinning * pressure)
+// thinning=0 → uniform; thinning=0.4 (the historical default) reduces
+// to size*(0.6 + 0.8*pressure); thinning=1 swings between 0 and 2*size.
+function processRawStroke(rawStroke, size, thinning) {
   const flat = rawStroke.map(p => [p.x, p.y, p.pressure]);
   const sp = getStrokePoints(flat, { size, streamline: 0.5, last: true });
   if (sp.length < 2) return [];
@@ -549,7 +558,7 @@ function processRawStroke(rawStroke, size) {
   return simulated.map(p => ({
     x: p.point[0],
     y: p.point[1],
-    width: size * (0.6 + 0.8 * p.pressure),
+    width: Math.max(0.5, size * (1 - thinning + 2 * thinning * p.pressure)),
   }));
 }
 
@@ -563,7 +572,7 @@ function drawDrawingPanel() {
   if (rawLiveStroke && rawLiveStroke.length >= 1) {
     // Live drag: PF outline polygon. Same call as before.
     const w = +strokeWIn.value;
-    const opts = { size: w, thinning: 0.4, smoothing: 0.55, streamline: 0.5 };
+    const opts = { size: w, thinning: +thinningIn.value, smoothing: 0.55, streamline: 0.5 };
     const flat = rawLiveStroke.map(p => [p.x, p.y, p.pressure]);
     const outline = getStroke(flat, { ...opts, last: !activeDrag });
     fillPolygon(dctx, outline, inkColor);
@@ -588,12 +597,56 @@ function drawDrawingPanel() {
   }
 }
 
+// Logical → CSS-coords transform for panel 2. Recomputed every frame
+// from the path's bbox (anchors + tangent handles + width handles)
+// so a handle dragged offscreen is reframed back into view.
+let bezierViewT = { scale: 1, tx: 0, ty: 0 };
+
+function computeBezierViewT(cssW, cssH) {
+  if (state.paths.length === 0) {
+    bezierViewT = { scale: 1, tx: 0, ty: 0 };
+    return;
+  }
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const path of state.paths) {
+    for (const a of path.anchors) {
+      const wh = widthHandlePos(a);
+      const xs = [a.x, a.h1x, a.h2x, wh.x];
+      const ys = [a.y, a.h1y, a.h2y, wh.y];
+      for (const x of xs) { if (x < minX) minX = x; if (x > maxX) maxX = x; }
+      for (const y of ys) { if (y < minY) minY = y; if (y > maxY) maxY = y; }
+    }
+  }
+  const pad = 28;
+  const contentW = Math.max(1, maxX - minX);
+  const contentH = Math.max(1, maxY - minY);
+  const fitW = cssW - 2 * pad;
+  const fitH = cssH - 2 * pad;
+  // Don't zoom in beyond 1× — small drawings stay at native size and
+  // are centered. Zoom out only when the content would clip.
+  const scale = Math.min(1, fitW / contentW, fitH / contentH);
+  const tx = pad + (fitW - contentW * scale) / 2 - minX * scale;
+  const ty = pad + (fitH - contentH * scale) / 2 - minY * scale;
+  bezierViewT = { scale, tx, ty };
+}
+
+function pointerToLogical(clientX, clientY) {
+  const r = bezCvs.getBoundingClientRect();
+  const cssX = clientX - r.left;
+  const cssY = clientY - r.top;
+  return {
+    x: (cssX - bezierViewT.tx) / bezierViewT.scale,
+    y: (cssY - bezierViewT.ty) / bezierViewT.scale,
+  };
+}
+
 function drawBezierPanel() {
   if (!fitCanvas(bezCvs, bctx)) return;
   const cssW = bezCvs.clientWidth, cssH = bezCvs.clientHeight;
   bctx.clearRect(0, 0, cssW, cssH);
 
   if (state.paths.length === 0) {
+    bezierViewT = { scale: 1, tx: 0, ty: 0 };
     bctx.fillStyle = getMuted();
     bctx.globalAlpha = 0.7;
     bctx.font = '14px ui-sans-serif, system-ui, sans-serif';
@@ -602,32 +655,53 @@ function drawBezierPanel() {
     return;
   }
 
+  computeBezierViewT(cssW, cssH);
+  const T = bezierViewT;
+  const proj = (x, y) => [x * T.scale + T.tx, y * T.scale + T.ty];
+
   const inkColor = getInk();
   for (const path of state.paths) {
     const a = path.anchors;
     bctx.strokeStyle = inkColor;
     bctx.lineWidth = 1.5;
     bctx.beginPath();
-    bctx.moveTo(a[0].x, a[0].y);
+    const [x0, y0] = proj(a[0].x, a[0].y);
+    bctx.moveTo(x0, y0);
     for (let i = 1; i < a.length; i++) {
       const p = a[i-1], q = a[i];
-      bctx.bezierCurveTo(p.h2x, p.h2y, q.h1x, q.h1y, q.x, q.y);
+      const [c1x, c1y] = proj(p.h2x, p.h2y);
+      const [c2x, c2y] = proj(q.h1x, q.h1y);
+      const [x1, y1] = proj(q.x, q.y);
+      bctx.bezierCurveTo(c1x, c1y, c2x, c2y, x1, y1);
     }
     bctx.stroke();
 
     for (let i = 0; i < a.length; i++) {
-      if (i > 0) drawHandle(a[i].x, a[i].y, a[i].h1x, a[i].h1y);
-      if (i < a.length - 1) drawHandle(a[i].x, a[i].y, a[i].h2x, a[i].h2y);
+      const [ax, ay] = proj(a[i].x, a[i].y);
+      if (i > 0) {
+        const [hx, hy] = proj(a[i].h1x, a[i].h1y);
+        drawHandle(ax, ay, hx, hy);
+      }
+      if (i < a.length - 1) {
+        const [hx, hy] = proj(a[i].h2x, a[i].h2y);
+        drawHandle(ax, ay, hx, hy);
+      }
     }
     for (let i = 0; i < a.length; i++) {
       const wh = widthHandlePos(a[i]);
-      drawWidthHandle(a[i].x, a[i].y, wh.x, wh.y);
+      const [ax, ay] = proj(a[i].x, a[i].y);
+      const [hx, hy] = proj(wh.x, wh.y);
+      drawWidthHandle(ax, ay, hx, hy);
     }
-    for (let i = 0; i < a.length; i++) drawAnchor(a[i].x, a[i].y);
+    for (let i = 0; i < a.length; i++) {
+      const [ax, ay] = proj(a[i].x, a[i].y);
+      drawAnchor(ax, ay);
+    }
   }
 
   const totalAnchors = state.paths.reduce((n, p) => n + p.anchors.length, 0);
-  bezMeta.textContent = `${totalAnchors} anchors`;
+  const zoomNote = T.scale < 0.999 ? ` · ${(T.scale * 100).toFixed(0)}%` : '';
+  bezMeta.textContent = `${totalAnchors} anchors${zoomNote}`;
 }
 
 // Compute the perpendicular axis at an anchor (from h1→h2 tangent),
@@ -714,9 +788,7 @@ $('bezierMode').addEventListener('change', (e) => {
 
 bezCvs.addEventListener('pointerdown', (e) => {
   e.preventDefault();
-  const r = bezCvs.getBoundingClientRect();
-  const x = e.clientX - r.left;
-  const y = e.clientY - r.top;
+  const { x, y } = pointerToLogical(e.clientX, e.clientY);
 
   const wantRemove = e.ctrlKey || e.metaKey || bezierMode === 'remove';
   const wantAdd = e.shiftKey || bezierMode === 'add';
@@ -756,7 +828,10 @@ bezCvs.addEventListener('pointerdown', (e) => {
 
 function closestPointOnPath(path, x, y, maxDist) {
   const a = path.anchors;
-  let best = null, bestD2 = (maxDist || 12) * (maxDist || 12);
+  // Threshold is in screen px; scale to logical units so hits stay
+  // tactile when the view is zoomed out.
+  const max = (maxDist || 12) / bezierViewT.scale;
+  let best = null, bestD2 = max * max;
   const STEPS = 24;
   for (let i = 0; i < a.length - 1; i++) {
     const p = a[i], q = a[i + 1];
@@ -813,8 +888,7 @@ window.addEventListener('pointermove', (e) => {
     rawLiveStroke.push(p);
     scheduleRender();
   } else if (activeDrag.kind === 'bezier') {
-    const r = bezCvs.getBoundingClientRect();
-    const x = e.clientX - r.left, y = e.clientY - r.top;
+    const { x, y } = pointerToLogical(e.clientX, e.clientY);
     const a = state.paths[activeDrag.pi].anchors[activeDrag.ai];
     if (activeDrag.sub === 'anchor') {
       const dx = x - a.x, dy = y - a.y;
@@ -858,7 +932,7 @@ window.addEventListener('pointerup', () => {
       // and convert pressure → absolute pixel width using PF's thinning
       // formula. The bezier anchors carry widths from here on; the
       // raw input is discarded.
-      const processed = processRawStroke(rawLiveStroke, +strokeWIn.value);
+      const processed = processRawStroke(rawLiveStroke, +strokeWIn.value, +thinningIn.value);
       smoothLevel = 1.5;
       const path = polylineToBezier(rdpSimplify(processed, smoothLevel));
       if (path) state.paths = [path];
@@ -881,7 +955,8 @@ window.addEventListener('pointercancel', () => {
 });
 
 function bezierHitTest(x, y) {
-  let best = null, bestD = 12;
+  // 12px in screen space → scaled to logical units.
+  let best = null, bestD = 12 / bezierViewT.scale;
   for (let pi = 0; pi < state.paths.length; pi++) {
     const a = state.paths[pi].anchors;
     for (let ai = 0; ai < a.length; ai++) {
@@ -1829,6 +1904,14 @@ $('record').addEventListener('click', async (e) => {
     btn.disabled = false;
     btn.textContent = 'Record';
   }
+});
+
+// Thinning is read fresh on each draw and on each processRawStroke
+// call, so the slider only affects future strokes (existing anchor
+// widths are absolute pixels and don't carry their original pressure).
+thinningIn.addEventListener('input', () => {
+  thinningVal.textContent = thinningIn.value;
+  scheduleRender();
 });
 
 // Slider value at the last input event. We scale anchor widths by the
