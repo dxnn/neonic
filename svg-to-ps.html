@@ -1286,6 +1286,17 @@ function setActive(idx) {
   drawDrawerRamp();
   syncStopColorInput();
   syncRemoveStopBtn();
+
+  // Smooth jump-to-play: queue this row as the next palette and start
+  // the feed-in immediately. The watcher's existing pendingNextIdx
+  // flow finalizes displayedIdx after the transition spreads through
+  // the 254-tick band, and tweens speed during the transition.
+  if (engine && idx !== displayedIdx && idx !== pendingNextIdx) {
+    engine.transitionTo(
+      window.PshiftPng.buildRamp(playlist[idx].stops),
+      engine.offset);
+    pendingNextIdx = idx;
+  }
 }
 
 function closeDrawer() {
