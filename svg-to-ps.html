@@ -169,13 +169,14 @@
     display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   }
   .preset-name {
-    flex: 1 1 8em; min-width: 0;
+    width: 9em; flex: 0 0 9em; min-width: 0;
     padding: 5px 9px;
     font: 12px ui-sans-serif, system-ui, sans-serif;
     background: #fafaf6; color: var(--ink);
     border: .5px solid var(--rule); border-radius: 6px;
   }
   .preset-select {
+    max-width: 11em;
     padding: 5px 9px;
     font: 12px ui-sans-serif, system-ui, sans-serif;
     background: #fafaf6; color: var(--ink);
@@ -300,6 +301,13 @@
       <button class="ghost" id="undo">Undo</button>
       <button class="ghost" id="redo">Redo</button>
       <button class="ghost" id="smooth">Smooth</button>
+      <label title="Tap mode: drag handles, add anchor at point, or remove anchor">Tap
+        <select id="bezierMode">
+          <option value="drag">drag</option>
+          <option value="add">add anchor</option>
+          <option value="remove">remove anchor</option>
+        </select>
+      </label>
       <span class="meta" id="bez-meta"></span>
     </div>
   </section>
@@ -696,14 +704,24 @@ drawCvs.addEventListener('pointerdown', (e) => {
   scheduleRender();
 });
 
+// Tap-mode dropdown — drives the pointerdown action when no modifier
+// keys are held. Cmd/Ctrl-click and shift-click stay as desktop
+// accelerators that override whatever mode is selected.
+let bezierMode = 'drag';
+$('bezierMode').addEventListener('change', (e) => {
+  bezierMode = e.target.value;
+});
+
 bezCvs.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   const r = bezCvs.getBoundingClientRect();
   const x = e.clientX - r.left;
   const y = e.clientY - r.top;
 
-  // Ctrl/Cmd-click on an anchor → delete it (need ≥2 anchors).
-  if (e.ctrlKey || e.metaKey) {
+  const wantRemove = e.ctrlKey || e.metaKey || bezierMode === 'remove';
+  const wantAdd = e.shiftKey || bezierMode === 'add';
+
+  if (wantRemove) {
     const hit = bezierHitTest(x, y);
     if (hit && hit.sub === 'anchor'
         && state.paths[hit.pi].anchors.length > 2) {
@@ -715,10 +733,9 @@ bezCvs.addEventListener('pointerdown', (e) => {
     return;
   }
 
-  // Shift-click on the curve → insert a new anchor at the closest
-  // point along the bezier (de Casteljau split, so tangents on both
-  // sides keep their existing shape).
-  if (e.shiftKey && state.paths.length > 0) {
+  if (wantAdd && state.paths.length > 0) {
+    // de Casteljau split at the closest point along the curve —
+    // tangents on both sides keep their existing shape.
     const closest = closestPointOnPath(state.paths[0], x, y, 12);
     if (closest) {
       pushHistory();
@@ -729,7 +746,7 @@ bezCvs.addEventListener('pointerdown', (e) => {
     return;
   }
 
-  // Regular: drag the hit anchor or handle.
+  // Drag mode: move the hit anchor or handle.
   const hit = bezierHitTest(x, y);
   if (hit) {
     pushHistory();
@@ -908,7 +925,8 @@ function rebake() {
   }
 
   const prev = engine
-    ? { offset: engine.offset, speed: engine.speed, reverse: engine.reverse, running: engine.running }
+    ? { offset: engine.offset, baseStartOff: engine.baseStartOff,
+        speed: engine.speed, reverse: engine.reverse, running: engine.running }
     : null;
   if (engine) engine.stop();
 
@@ -921,7 +939,13 @@ function rebake() {
     : currentRamp;
   engine.setPalette(seedRamp);
   if (prev) {
+    // Preserve cycle phase: restore offset AND baseStartOff so the
+    // watcher's cyclesPlayed = (offset - baseStartOff) / 255 stays
+    // consistent across rebakes. Without baseStartOff, the watcher
+    // sees a huge cycle count and fires immediate transitions, which
+    // looks like a brief speed-up after every undo / handle drag.
     engine.offset = prev.offset;
+    engine.baseStartOff = prev.baseStartOff;
     engine.setSpeed(prev.speed);
     engine.setReverse(prev.reverse);
     if (prev.running) engine.start();
@@ -1275,9 +1299,10 @@ function startCycleWatcher() {
 
 function buildPresetOptions(sel, currentName) {
   sel.innerHTML = '';
+  const truncate = (s) => s.length > 17 ? s.slice(0, 17) + '…' : s;
   for (const name of Object.keys(window.HyperDrive.PALETTES)) {
     const o = document.createElement('option');
-    o.value = name; o.textContent = name;
+    o.value = name; o.textContent = truncate(name); o.title = name;
     sel.appendChild(o);
   }
   const customs = loadCustomPresets();
@@ -1288,7 +1313,7 @@ function buildPresetOptions(sel, currentName) {
     sel.appendChild(sep);
     for (const n of customNames) {
       const o = document.createElement('option');
-      o.value = 'custom:' + n; o.textContent = n;
+      o.value = 'custom:' + n; o.textContent = truncate(n); o.title = n;
       sel.appendChild(o);
     }
   }
@@ -1553,6 +1578,12 @@ function renderPlaylist() {
 
     // Drag-and-drop reorder.
     row.addEventListener('dragstart', (e) => {
+      // Only the grip starts a drag; clicking elsewhere on the row
+      // (swatch, inputs, drawer) shouldn't initiate reorder.
+      if (!e.target.closest('.grip')) {
+        e.preventDefault();
+        return;
+      }
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', String(i));
       row.classList.add('dragging');
@@ -1800,8 +1831,21 @@ $('record').addEventListener('click', async (e) => {
   }
 });
 
+// Slider value at the last input event. We scale anchor widths by the
+// ratio (new / old) on each change so dragging the slider grows /
+// shrinks an existing path linearly. Future fresh draws use the
+// slider value as PF's input size.
+let strokeWLast = +strokeWIn.value;
 strokeWIn.addEventListener('input', () => {
+  const v = +strokeWIn.value;
   strokeWVal.textContent = strokeWIn.value;
+  if (v !== strokeWLast && state.paths.length && state.paths[0].anchors) {
+    const ratio = v / strokeWLast;
+    for (const a of state.paths[0].anchors) {
+      if (a.width != null) a.width = Math.max(2, Math.min(200, a.width * ratio));
+    }
+  }
+  strokeWLast = v;
   scheduleRender();
   scheduleBake();
 });
