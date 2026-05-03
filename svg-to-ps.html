@@ -1813,85 +1813,190 @@ $('smooth').addEventListener('click', () => {
   scheduleBake();
 });
 
-$('import').addEventListener('click', () => {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = 'image/png,.png';
-  input.onchange = async () => {
-    const file = input.files && input.files[0];
-    if (!file) return;
-    let decoded;
-    try {
-      const buf = new Uint8Array(await file.arrayBuffer());
-      decoded = window.PshiftPng.decode(buf);
-    } catch (err) {
-      alert('Could not import: ' + err.message);
-      return;
+// Truncate an SVG path d-string at the second top-level moveto so we
+// only consume the first subpath. Multi-subpath SVGs sampled as one
+// continuous polyline produce visible jumps where the moveto fires;
+// the user said "take the first path you find and discard the rest",
+// which we extend to subpaths within a single <path> too.
+function firstSubpathOnly(d) {
+  let firstM = -1;
+  for (let i = 0; i < d.length; i++) {
+    const c = d[i];
+    if (c === 'M' || c === 'm') {
+      if (firstM === -1) firstM = i;
+      else return d.slice(0, i).trim();
     }
-    const meta = decoded.metadata;
-    if (!Array.isArray(meta.anchors) || meta.anchors.length < 2) {
-      alert('PNG is missing an anchors array.');
-      return;
+  }
+  return d.trim();
+}
+
+// Sample the first <path> in an SVG document into a polyline and fit
+// it to panel 1's viewport. Returns { anchors, size } or null if
+// nothing usable was found.
+function importFromSvg(text) {
+  let doc;
+  try { doc = new DOMParser().parseFromString(text, 'image/svg+xml'); }
+  catch { return null; }
+  if (doc.querySelector('parsererror')) return null;
+  const path = doc.querySelector('path');
+  if (!path) return null;
+  const dRaw = path.getAttribute('d');
+  if (!dRaw) return null;
+  const d = firstSubpathOnly(dRaw);
+
+  // Mount in the document so getTotalLength / getPointAtLength work.
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const tmpSvg = document.createElementNS(SVG_NS, 'svg');
+  const tmpPath = document.createElementNS(SVG_NS, 'path');
+  tmpPath.setAttribute('d', d);
+  tmpSvg.appendChild(tmpPath);
+  tmpSvg.style.cssText = 'position:absolute;width:0;height:0;opacity:0;pointer-events:none;';
+  document.body.appendChild(tmpSvg);
+  try {
+    const totalLen = tmpPath.getTotalLength();
+    if (!totalLen || !isFinite(totalLen)) return null;
+    const steps = Math.min(2000, Math.max(20, Math.ceil(totalLen)));
+    const raw = [];
+    for (let i = 0; i <= steps; i++) {
+      const p = tmpPath.getPointAtLength((i / steps) * totalLen);
+      raw.push({ x: p.x, y: p.y, pressure: 0.5 });
     }
-    if (!Array.isArray(meta.palettes) || meta.palettes.length === 0) {
-      alert('PNG is missing a palettes array.');
-      return;
+    // Scale-to-fit panel 1's canvas with padding. SVG path coords
+    // are usually much larger than 320×320, so we always rescale.
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const s of raw) {
+      if (s.x < minX) minX = s.x; if (s.x > maxX) maxX = s.x;
+      if (s.y < minY) minY = s.y; if (s.y > maxY) maxY = s.y;
     }
-    pushHistory();
-    // Anchors in modern exports carry both pressure and width.
-    // Legacy exports may have only one; we fill the other in:
-    //   - width but no pressure → invert PF's historical thinning=0.4
-    //     formula to recover pressure.
-    //   - pressure but no width → forward the formula at thinning=0.4.
-    //   - neither → uniform (pressure 0.5, width = strokeWidth).
-    const importBase = meta.strokeWidth != null ? +meta.strokeWidth : 22;
-    const importedAnchors = meta.anchors.map((a) => {
-      const out = { ...a };
-      if (out.pressure == null) {
-        if (out.width != null) {
-          out.pressure = (out.width / importBase - 0.6) / 0.8;
-        } else {
-          out.pressure = 0.5;
-        }
-      }
-      if (out.width == null) {
-        out.width = importBase * (0.6 + 0.8 * out.pressure);
-      }
-      return out;
-    });
-    state.paths = [{ anchors: importedAnchors, size: importBase }];
-    // Align the imported widths to the current thinning slider — the
-    // saved widths assumed thinning=0.4, so this reapplies whatever
-    // the editor is set to now.
-    recomputeWidths(state.paths[0], +thinningIn.value);
-    smoothLevel = 1.5;
-    if (meta.strokeWidth != null) {
-      strokeWIn.value = meta.strokeWidth;
-      strokeWVal.textContent = meta.strokeWidth;
-      strokeWLast = +meta.strokeWidth;
+    const cssW = drawCvs.clientWidth || 320;
+    const cssH = drawCvs.clientHeight || 320;
+    const pad = 24;
+    const w = Math.max(1, maxX - minX);
+    const h = Math.max(1, maxY - minY);
+    const scale = Math.min((cssW - 2*pad) / w, (cssH - 2*pad) / h);
+    const tx = pad - minX * scale + ((cssW - 2*pad) - w * scale) / 2;
+    const ty = pad - minY * scale + ((cssH - 2*pad) - h * scale) / 2;
+    for (const s of raw) {
+      s.x = s.x * scale + tx;
+      s.y = s.y * scale + ty;
     }
+    const simplified = rdpSimplify(raw, 0.8);
+    const beziered = polylineToBezier(simplified);
+    if (!beziered) return null;
+    return { anchors: beziered.anchors, size: 22 };
+  } finally {
+    document.body.removeChild(tmpSvg);
+  }
+}
+
+// Decode a .pshift.png. Anchors are required; everything else is
+// optional and gets a default at apply time.
+function importFromPshiftPng(buf) {
+  let decoded;
+  try { decoded = window.PshiftPng.decode(buf); }
+  catch (err) {
+    alert('Could not import: ' + err.message);
+    return null;
+  }
+  const meta = decoded.metadata;
+  if (!Array.isArray(meta.anchors) || meta.anchors.length < 2) {
+    alert('PNG is missing an anchors array.');
+    return null;
+  }
+  // Anchors in modern exports carry both pressure and width. Legacy
+  // exports may have only one; we fill the other in via PF's
+  // historical thinning=0.4 formula:
+  //   width = strokeWidth * (0.6 + 0.8 * pressure)
+  const importBase = meta.strokeWidth != null ? +meta.strokeWidth : 22;
+  const importedAnchors = meta.anchors.map((a) => {
+    const out = { ...a };
+    if (out.pressure == null) {
+      out.pressure = out.width != null
+        ? (out.width / importBase - 0.6) / 0.8
+        : 0.5;
+    }
+    if (out.width == null) {
+      out.width = importBase * (0.6 + 0.8 * out.pressure);
+    }
+    return out;
+  });
+  return {
+    anchors: importedAnchors,
+    size: importBase,
+    strokeWidth: meta.strokeWidth,
+    palettes: Array.isArray(meta.palettes) && meta.palettes.length ? meta.palettes : null,
+    activeIdx: meta.activeIdx,
+    playMode: meta.playMode,
+  };
+}
+
+function applyImport(imp) {
+  pushHistory();
+  state.paths = [{ anchors: imp.anchors, size: imp.size }];
+  recomputeWidths(state.paths[0], +thinningIn.value);
+  smoothLevel = 1.5;
+  if (imp.strokeWidth != null) {
+    strokeWIn.value = imp.strokeWidth;
+    strokeWVal.textContent = imp.strokeWidth;
+    strokeWLast = +imp.strokeWidth;
+  } else {
+    strokeWLast = +strokeWIn.value;
+  }
+  // Replace the playlist only when the import provided one. Imports
+  // without palette data (SVG, or partial pshift) keep whatever
+  // playlist the user already had.
+  if (imp.palettes) {
     playlist.length = 0;
-    for (const p of meta.palettes) {
+    for (const p of imp.palettes) {
       playlist.push({
         stops: p.stops.map(s => ({ t: s.t, color: s.color.slice() })),
         speed: p.speed != null ? Math.abs(p.speed) : 60,
         cycles: p.cycles != null ? p.cycles : 1,
       });
     }
-    selectedStop = 0;
-    activeIdx = -1;
-    displayedIdx = 0;
-    pendingNextIdx = -1;
-    targetCycles = playlist[0].cycles || 1;
-    currentRamp = window.PshiftPng.buildRamp(playlist[0].stops);
-    playMode = meta.playMode || 'sequential';
-    if (engine) {
-      engine.setPalette(currentRamp);
-      engine.setSpeed(Math.abs(playlist[0].speed));
+  }
+  if (imp.playMode) playMode = imp.playMode;
+  selectedStop = 0;
+  activeIdx = -1;
+  displayedIdx = 0;
+  pendingNextIdx = -1;
+  targetCycles = playlist[0]?.cycles || 1;
+  currentRamp = window.PshiftPng.buildRamp(playlist[0].stops);
+  if (engine && playlist[0]) {
+    engine.setPalette(currentRamp);
+    engine.setSpeed(Math.abs(playlist[0].speed));
+  }
+  renderPlaylist();
+  scheduleRender();
+  scheduleBake();
+}
+
+$('import').addEventListener('click', () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/png,.png,image/svg+xml,.svg';
+  input.onchange = async () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const isSvg = /\.svg$/i.test(file.name) || file.type === 'image/svg+xml';
+    let imp;
+    try {
+      if (isSvg) {
+        imp = importFromSvg(await file.text());
+        if (!imp) {
+          alert('No usable <path> found in the SVG.');
+          return;
+        }
+      } else {
+        const buf = new Uint8Array(await file.arrayBuffer());
+        imp = importFromPshiftPng(buf);
+        if (!imp) return;  // alert already shown
+      }
+    } catch (err) {
+      alert('Could not import: ' + err.message);
+      return;
     }
-    renderPlaylist();
-    scheduleRender();
-    scheduleBake();
+    applyImport(imp);
   };
   input.click();
 });
