@@ -11,42 +11,44 @@
     return ((a & 0xff) << 24) | ((b & 0xff) << 16) | ((g & 0xff) << 8) | (r & 0xff);
   }
   function hex(h) { const n = parseInt(h.slice(1), 16); return [(n>>16)&255,(n>>8)&255,n&255]; }
+
+  // buildRamp(stops) → Uint8Array(255 * 3)
+  // stops: [{ t: 0..1, color: [r, g, b] }, ...]
+  // Entry i occupies bytes i*3, i*3+1, i*3+2.
   function buildRamp(stops) {
-    const out = new Array(255);
-    stops = stops.slice().sort((a,b)=>a.t-b.t);
+    stops = stops.slice().sort((a, b) => a.t - b.t);
+    const out = new Uint8Array(255 * 3);
     for (let i = 0; i < 255; i++) {
       const t = i / 254;
-      let a = stops[0], b = stops[stops.length-1];
-      for (let k = 0; k < stops.length-1; k++) {
-        if (t >= stops[k].t && t <= stops[k+1].t) { a = stops[k]; b = stops[k+1]; break; }
+      let a = stops[0], b = stops[stops.length - 1];
+      for (let k = 0; k < stops.length - 1; k++) {
+        if (t >= stops[k].t && t <= stops[k + 1].t) { a = stops[k]; b = stops[k + 1]; break; }
       }
       const span = b.t - a.t || 1, u = (t - a.t) / span;
-      out[i] = [
-        Math.round(a.c[0] + (b.c[0]-a.c[0])*u),
-        Math.round(a.c[1] + (b.c[1]-a.c[1])*u),
-        Math.round(a.c[2] + (b.c[2]-a.c[2])*u),
-      ];
+      out[i * 3]     = Math.round(a.color[0] + (b.color[0] - a.color[0]) * u);
+      out[i * 3 + 1] = Math.round(a.color[1] + (b.color[1] - a.color[1]) * u);
+      out[i * 3 + 2] = Math.round(a.color[2] + (b.color[2] - a.color[2]) * u);
     }
     return out;
   }
 
   const PALETTES = {
-    greyscale: () => buildRamp([{t:0,c:hex('#0a0a0b')},{t:1,c:hex('#f5f3ec')}]),
-    sodium:    () => buildRamp([{t:0,c:hex('#1a0a02')},{t:.45,c:hex('#a5410a')},{t:.78,c:hex('#ffb24a')},{t:1,c:hex('#fff7d6')}]),
-    cyan:      () => buildRamp([{t:0,c:hex('#03070d')},{t:.40,c:hex('#0a4a72')},{t:.72,c:hex('#3fb6e6')},{t:1,c:hex('#eaf6ff')}]),
-    plasma:    () => buildRamp([{t:0,c:hex('#0d0420')},{t:.30,c:hex('#5a0c6e')},{t:.55,c:hex('#c2317a')},{t:.78,c:hex('#f08a3a')},{t:1,c:hex('#fff2cf')}]),
+    greyscale: () => buildRamp([{t:0,color:hex('#0a0a0b')},{t:1,color:hex('#f5f3ec')}]),
+    sodium:    () => buildRamp([{t:0,color:hex('#1a0a02')},{t:.45,color:hex('#a5410a')},{t:.78,color:hex('#ffb24a')},{t:1,color:hex('#fff7d6')}]),
+    cyan:      () => buildRamp([{t:0,color:hex('#03070d')},{t:.40,color:hex('#0a4a72')},{t:.72,color:hex('#3fb6e6')},{t:1,color:hex('#eaf6ff')}]),
+    plasma:    () => buildRamp([{t:0,color:hex('#0d0420')},{t:.30,color:hex('#5a0c6e')},{t:.55,color:hex('#c2317a')},{t:.78,color:hex('#f08a3a')},{t:1,color:hex('#fff2cf')}]),
     rainbow:   () => buildRamp([
-      {t:0.00,c:hex('#ff2a2a')},{t:0.17,c:hex('#ff8a14')},{t:0.33,c:hex('#ffe600')},
-      {t:0.50,c:hex('#2dd24a')},{t:0.66,c:hex('#1f7bff')},{t:0.83,c:hex('#7b2dff')},
-      {t:1.00,c:hex('#ff2a2a')},
+      {t:0.00,color:hex('#ff2a2a')},{t:0.17,color:hex('#ff8a14')},{t:0.33,color:hex('#ffe600')},
+      {t:0.50,color:hex('#2dd24a')},{t:0.66,color:hex('#1f7bff')},{t:0.83,color:hex('#7b2dff')},
+      {t:1.00,color:hex('#ff2a2a')},
     ]),
     rainbowCompressed: () => {
       const blue = hex('#1f7bff');
       return buildRamp([
-        {t:0.000,c:blue},{t:0.449,c:blue},
-        {t:0.450,c:hex('#ff2a2a')},{t:0.467,c:hex('#ff8a14')},{t:0.484,c:hex('#ffe600')},
-        {t:0.500,c:hex('#2dd24a')},{t:0.517,c:hex('#1f7bff')},{t:0.534,c:hex('#7b2dff')},
-        {t:0.550,c:blue},{t:1.000,c:blue},
+        {t:0.000,color:blue},{t:0.449,color:blue},
+        {t:0.450,color:hex('#ff2a2a')},{t:0.467,color:hex('#ff8a14')},{t:0.484,color:hex('#ffe600')},
+        {t:0.500,color:hex('#2dd24a')},{t:0.517,color:hex('#1f7bff')},{t:0.534,color:hex('#7b2dff')},
+        {t:0.550,color:blue},{t:1.000,color:blue},
       ]);
     },
   };
@@ -282,7 +284,7 @@
     this.ctx = canvas.getContext('2d');
     this.image = this.ctx.createImageData(baked.width, baked.height);
     this.data32 = new Uint32Array(this.image.data.buffer);
-    this.palette = new Uint32Array(256); this.palette[0] = 0;
+    this.palette = new Uint32Array(256);
     this.basePalette = PALETTES.greyscale();
     this.baseStartOff = 0;
     this.nextPalette = null;
@@ -290,21 +292,22 @@
     this.offset = 0; this.speed = 40; this.reverse = false;
     this.running = false; this._raf = 0; this._last = 0;
     this._boundFrame = this._frame.bind(this);
-    this._prevPal = new Uint32Array(256);
+    this._renderOff = NaN;
+    this._palDirty = false;
   }
   CycleEngine.prototype.setPalette = function (n) {
     this.basePalette = typeof n === 'string' ? PALETTES[n]() : n;
     this.baseStartOff = this.offset;
     this.nextPalette = null;
     this.nextStartOff = -1;
-    this._writePalette();
+    this._palDirty = true;
   };
   // Live-edit a palette without resetting the cycle position. Used by the
   // editor's stop-edits — the user wants their tweaks to appear without
   // jumping the cycle back to phase 0.
   CycleEngine.prototype.replacePalette = function (n) {
     this.basePalette = typeof n === 'string' ? PALETTES[n]() : n;
-    this._writePalette();
+    this._palDirty = true;
   };
   // Schedule a feed-in of `n` starting at `scheduledOff` (defaults to now).
   // The watcher snaps scheduledOff to a cycle boundary so palette[1] reads
@@ -312,7 +315,7 @@
   CycleEngine.prototype.transitionTo = function (n, scheduledOff) {
     this.nextPalette = typeof n === 'string' ? PALETTES[n]() : n;
     this.nextStartOff = (scheduledOff != null) ? scheduledOff : this.offset;
-    this._writePalette();
+    this._palDirty = true;
   };
   CycleEngine.prototype.setSpeed = function (s) { this.speed = s; };
   CycleEngine.prototype.setReverse = function (r) { this.reverse = !!r; };
@@ -338,20 +341,15 @@
       if (--posA < 0) posA += 255;
       if (--posB < 0) posB += 255;
       const k0 = pos | 0, k1 = (k0 + 1) % 255, f = pos - k0;
-      const c0 = p[k0], c1 = p[k1];
-      const r  = c0[0] + (c1[0] - c0[0]) * f;
-      const g  = c0[1] + (c1[1] - c0[1]) * f;
-      const bl = c0[2] + (c1[2] - c0[2]) * f;
+      const o0 = k0 * 3, o1 = k1 * 3;
+      const r  = p[o0]     + (p[o1]     - p[o0])     * f;
+      const g  = p[o0 + 1] + (p[o1 + 1] - p[o0 + 1]) * f;
+      const bl = p[o0 + 2] + (p[o1 + 2] - p[o0 + 2]) * f;
       pal[i + 1] = 0xff000000 | ((bl | 0) << 16) | ((g | 0) << 8) | (r | 0);
     }
   };
-  // Copy palette → pixels → canvas, but only when the palette has actually changed
-  // since the last blit. _prevPal tracks what is currently on the canvas.
-  CycleEngine.prototype._blit = function () {
-    const pal = this.palette, prev = this._prevPal;
-    if (pal[64] === prev[64] && pal[128] === prev[128] && pal[192] === prev[192]) return;
-    prev.set(pal);
-    const data32 = this.data32, idx = this.baked.indices, n = idx.length;
+  CycleEngine.prototype._paint = function () {
+    const data32 = this.data32, idx = this.baked.indices, pal = this.palette, n = idx.length;
     for (let i = 0; i < n; i++) data32[i] = pal[idx[i]];
     this.ctx.putImageData(this.image, 0, 0);
   };
@@ -362,8 +360,15 @@
     if (dt > 0.1) dt = 0;
     this._last = now;
     this.offset += this.speed * dt;
-    this._writePalette();
-    this._blit();
+    // Only recompute and repaint when the integer palette step changes or an
+    // explicit setPalette/replacePalette/transitionTo happened. Sub-step advances
+    // at slow speeds don't change any rendered pixel.
+    if (Math.floor(this.offset) !== Math.floor(this._renderOff) || this._palDirty) {
+      this._renderOff = this.offset;
+      this._palDirty = false;
+      this._writePalette();
+      this._paint();
+    }
     this._raf = requestAnimationFrame(this._boundFrame);
   };
   CycleEngine.prototype.start = function () {
@@ -375,9 +380,11 @@
     this.running = false; if (this._raf) cancelAnimationFrame(this._raf); this._raf = 0;
   };
   CycleEngine.prototype.render = function () {
+    this._renderOff = this.offset;
+    this._palDirty = false;
     this._writePalette();
-    this._blit();
+    this._paint();
   };
 
-  root.HyperDrive = { bakeFromD, bakeFromStroke, CycleEngine, PALETTES, _test: { rgba, hex, buildRamp } };
+  root.HyperDrive = { bakeFromD, bakeFromStroke, CycleEngine, PALETTES, buildRamp, _test: { rgba, hex } };
 })(window);

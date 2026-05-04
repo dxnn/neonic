@@ -30,7 +30,7 @@
 
     function applyPalette(i) {
       const p = palettes[i];
-      eng.setPalette(window.PshiftPng.buildRamp(p.stops));
+      eng.setPalette(window.HyperDrive.buildRamp(p.stops));
       eng.setSpeed(Math.abs(p.speed));
     }
     applyPalette(curIdx);
@@ -60,7 +60,7 @@
                  while (next === curIdx); }
           pendingNext = next;
           eng.transitionTo(
-            window.PshiftPng.buildRamp(palettes[next].stops),
+            window.HyperDrive.buildRamp(palettes[next].stops),
             eng.baseStartOff + target * 255);
         }
       }

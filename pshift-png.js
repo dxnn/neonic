@@ -11,7 +11,7 @@
 //   const decoded = PshiftPng.decode(uint8Array);
 //   // → { width, height, indices, metadata }
 //
-//   const ramp = PshiftPng.buildRamp(metadata.stops);
+// To build a palette ramp from decoded stops, use HyperDrive.buildRamp(stops).
 
 (function (root) {
 
@@ -111,27 +111,6 @@
     return out;
   }
 
-  // ─── ramp builder (shared with the editor) ────────────────────────────
-  function buildRamp(stops) {
-    const s = stops.slice().sort((a, b) => a.t - b.t);
-    const out = new Array(255);
-    for (let i = 0; i < 255; i++) {
-      const t = i / 254;
-      let a = s[0], b = s[s.length - 1];
-      if (t <= s[0].t) a = b = s[0];
-      else if (t >= s[s.length - 1].t) a = b = s[s.length - 1];
-      else for (let k = 0; k < s.length - 1; k++)
-        if (t >= s[k].t && t <= s[k + 1].t) { a = s[k]; b = s[k + 1]; break; }
-      const span = b.t - a.t || 1, u = (t - a.t) / span;
-      out[i] = [
-        Math.round(a.color[0] + (b.color[0] - a.color[0]) * u),
-        Math.round(a.color[1] + (b.color[1] - a.color[1]) * u),
-        Math.round(a.color[2] + (b.color[2] - a.color[2]) * u),
-      ];
-    }
-    return out;
-  }
-
   // ─── public encode / decode ───────────────────────────────────────────
   // encode(opts) → Promise<Uint8Array>
   // opts: { canvas, indices, anchors,
@@ -197,5 +176,5 @@
     return { width: meta.width, height: meta.height, indices, metadata: meta };
   }
 
-  root.PshiftPng = { encode, decode, buildRamp };
+  root.PshiftPng = { encode, decode };
 })(window);

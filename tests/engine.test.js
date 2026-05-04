@@ -5,8 +5,8 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-// For cross-realm arrays (created inside vm context), deepStrictEqual fails
-// the prototype check. Use this wrapper to compare element values instead.
+// hex() returns a JS array from inside the vm context; deepStrictEqual fails
+// the cross-realm prototype check, so compare element values directly.
 function eqArr(actual, expected) {
   assert.equal(actual.length, expected.length, 'array length mismatch');
   for (let i = 0; i < expected.length; i++)
@@ -16,58 +16,52 @@ const vm = require('vm');
 const fs = require('fs');
 
 // ── minimal DOM mock ──────────────────────────────────────────────────────────
-// Only what CycleEngine's constructor touches; bake functions aren't exercised.
-function makeImageData(w, h) {
-  const data = new Uint8Array(w * h * 4);
-  return { data };
-}
 const mockDocument = {
   body: { appendChild: () => {}, removeChild: () => {} },
   createElement: () => ({ getContext: () => ({}) }),
   createElementNS: () => ({
-    setAttribute: () => {},
-    appendChild: () => {},
+    setAttribute: () => {}, appendChild: () => {},
     getBBox: () => ({ x: 0, y: 0, width: 100, height: 100 }),
-    getTotalLength: () => 100,
-    getPointAtLength: (l) => ({ x: l, y: 0 }),
+    getTotalLength: () => 100, getPointAtLength: (l) => ({ x: l, y: 0 }),
     style: {},
   }),
 };
-function mockCanvas(w, h) {
-  const data = new Uint8Array(w * h * 4);
+function mockCanvas() {
   return {
     width: 0, height: 0,
     getContext: () => ({
-      createImageData: (cw, ch) => makeImageData(cw, ch),
+      createImageData: (w, h) => { const d = new Uint8Array(w * h * 4); return { data: d }; },
       putImageData: () => {},
     }),
   };
 }
-function mockBaked(w, h) {
+function mockBaked(w = 4, h = 4) {
   const indices = new Uint8Array(w * h);
-  // Fill with a spread of palette indices so _blit exercises the copy.
   for (let i = 0; i < indices.length; i++) indices[i] = (i % 254) + 1;
   return { width: w, height: h, indices };
 }
 
 // ── load the module ───────────────────────────────────────────────────────────
 const src = fs.readFileSync(require('path').resolve(__dirname, '../logo-engine-standalone.js'), 'utf8');
-const ctx = vm.createContext({ window: {}, document: mockDocument });
+const ctx = vm.createContext({
+  window: {},
+  document: mockDocument,
+  requestAnimationFrame: () => {},
+});
 vm.runInContext(src, ctx);
 const { HyperDrive } = ctx.window;
-const { CycleEngine, PALETTES, _test: { rgba, hex, buildRamp } } = HyperDrive;
+const { CycleEngine, PALETTES, buildRamp, _test: { rgba, hex } } = HyperDrive;
+
+function makeEngine() { return new CycleEngine(mockCanvas(), mockBaked()); }
 
 // ── rgba ──────────────────────────────────────────────────────────────────────
 test('rgba packs channels in ABGR order for little-endian Uint32Array', () => {
-  // In a Uint32Array backed by Uint8Array [R, G, B, A], the Uint32 on a
-  // little-endian machine is (A<<24)|(B<<16)|(G<<8)|R.
   const v = rgba(0xff, 0x80, 0x40, 0xff);
   assert.equal(v >>> 0, 0xff4080ff >>> 0);
 });
 
 test('rgba clamps channels to 8 bits', () => {
-  const full = rgba(0x1ff, 0x1ff, 0x1ff, 0x1ff);
-  assert.equal(full >>> 0, 0xffffffff >>> 0);
+  assert.equal(rgba(0x1ff, 0x1ff, 0x1ff, 0x1ff) >>> 0, 0xffffffff >>> 0);
 });
 
 test('rgba alpha=0 produces zero top byte', () => {
@@ -86,119 +80,150 @@ test('hex decodes black and white', () => {
 });
 
 // ── buildRamp ─────────────────────────────────────────────────────────────────
-test('buildRamp returns 255 entries', () => {
-  const ramp = buildRamp([{ t: 0, c: [0, 0, 0] }, { t: 1, c: [255, 255, 255] }]);
-  assert.equal(ramp.length, 255);
+test('buildRamp returns Uint8Array of length 255*3', () => {
+  const ramp = buildRamp([{ t: 0, color: [0, 0, 0] }, { t: 1, color: [255, 255, 255] }]);
+  assert.ok(Object.prototype.toString.call(ramp) === '[object Uint8Array]', 'not a Uint8Array');
+  assert.equal(ramp.length, 255 * 3);
 });
 
 test('buildRamp first entry matches start stop', () => {
-  const ramp = buildRamp([{ t: 0, c: [10, 20, 30] }, { t: 1, c: [200, 210, 220] }]);
-  eqArr(ramp[0], [10, 20, 30]);
+  const ramp = buildRamp([{ t: 0, color: [10, 20, 30] }, { t: 1, color: [200, 210, 220] }]);
+  assert.equal(ramp[0], 10);
+  assert.equal(ramp[1], 20);
+  assert.equal(ramp[2], 30);
 });
 
 test('buildRamp last entry matches end stop', () => {
-  const ramp = buildRamp([{ t: 0, c: [0, 0, 0] }, { t: 1, c: [255, 128, 64] }]);
-  eqArr(ramp[254], [255, 128, 64]);
+  const ramp = buildRamp([{ t: 0, color: [0, 0, 0] }, { t: 1, color: [255, 128, 64] }]);
+  assert.equal(ramp[254 * 3],     255);
+  assert.equal(ramp[254 * 3 + 1], 128);
+  assert.equal(ramp[254 * 3 + 2],  64);
 });
 
 test('buildRamp midpoint interpolates linearly', () => {
-  const ramp = buildRamp([{ t: 0, c: [0, 0, 0] }, { t: 1, c: [254, 254, 254] }]);
+  const ramp = buildRamp([{ t: 0, color: [0, 0, 0] }, { t: 1, color: [254, 254, 254] }]);
   // t=127/254 ≈ 0.5 → rgb ≈ [127, 127, 127]
-  const [r, g, b] = ramp[127];
-  assert.ok(Math.abs(r - 127) <= 1, `r=${r} not near 127`);
-  assert.ok(Math.abs(g - 127) <= 1, `g=${g} not near 127`);
-  assert.ok(Math.abs(b - 127) <= 1, `b=${b} not near 127`);
+  assert.ok(Math.abs(ramp[127 * 3]     - 127) <= 1, `r=${ramp[127*3]} not near 127`);
+  assert.ok(Math.abs(ramp[127 * 3 + 1] - 127) <= 1, `g=${ramp[127*3+1]} not near 127`);
+  assert.ok(Math.abs(ramp[127 * 3 + 2] - 127) <= 1, `b=${ramp[127*3+2]} not near 127`);
 });
 
 test('buildRamp sorts stops by t', () => {
-  const ramp = buildRamp([{ t: 1, c: [255, 0, 0] }, { t: 0, c: [0, 0, 255] }]);
-  // first entry should be the t=0 stop colour
-  eqArr(ramp[0], [0, 0, 255]);
+  const ramp = buildRamp([{ t: 1, color: [255, 0, 0] }, { t: 0, color: [0, 0, 255] }]);
+  assert.equal(ramp[0], 0);
+  assert.equal(ramp[1], 0);
+  assert.equal(ramp[2], 255);
+});
+
+test('buildRamp accepts {t, color} stop format', () => {
+  // Verify the public API shape — no {t, c} here.
+  const ramp = buildRamp([{ t: 0, color: [100, 150, 200] }, { t: 1, color: [100, 150, 200] }]);
+  assert.equal(ramp[0],   100);
+  assert.equal(ramp[1],   150);
+  assert.equal(ramp[2],   200);
 });
 
 // ── PALETTES ─────────────────────────────────────────────────────────────────
-test('built-in palette constructors return 255-entry arrays', () => {
+test('built-in PALETTES return Uint8Array(255*3)', () => {
   for (const name of Object.keys(PALETTES)) {
     const p = PALETTES[name]();
-    assert.equal(p.length, 255, `${name} palette has wrong length`);
-    assert.ok(Array.isArray(p[0]), `${name}[0] is not an array`);
-    assert.equal(p[0].length, 3, `${name}[0] does not have 3 channels`);
+    assert.ok(Object.prototype.toString.call(p) === '[object Uint8Array]', `${name} is not a Uint8Array`);
+    assert.equal(p.length, 255 * 3, `${name} has wrong length`);
+    // Spot-check: values are in 0..255 range
+    assert.ok(p[0] >= 0 && p[0] <= 255, `${name}[0] out of range`);
   }
 });
 
-// ── CycleEngine: _writePalette and _blit ──────────────────────────────────────
-function makeEngine(w = 4, h = 4) {
-  return new CycleEngine(mockCanvas(w, h), mockBaked(w, h));
-}
-
-test('engine palette starts as zeroes before setPalette', () => {
+// ── CycleEngine ───────────────────────────────────────────────────────────────
+test('engine palette starts as zeroes before any render', () => {
   const eng = makeEngine();
-  // palette[0] = transparent, palette[1..255] = 0 until first write
   assert.equal(eng.palette[128], 0);
 });
 
-test('setPalette writes non-zero colours into palette', () => {
+test('setPalette marks _palDirty without immediately painting', () => {
   const eng = makeEngine();
+  let painted = 0;
+  eng.ctx.putImageData = () => { painted++; };
   eng.setPalette('greyscale');
-  // After setPalette the palette array should have non-zero values in 1..255.
-  const nonzero = Array.from(eng.palette.slice(1)).some(v => v !== 0);
-  assert.ok(nonzero, 'palette stayed all-zeroes after setPalette');
+  assert.equal(painted, 0, 'setPalette should not paint directly');
+  assert.equal(eng._palDirty, true);
 });
 
-test('_blit skips work when palette unchanged (_prevPal matches)', () => {
+test('render() always paints regardless of state', () => {
   const eng = makeEngine();
+  let painted = 0;
+  eng.ctx.putImageData = () => { painted++; };
   eng.setPalette('rainbow');
-  // First blit: _prevPal is all-zero, palette is non-zero → blit runs.
-  let blitCount = 0;
-  const origPutImageData = eng.ctx.putImageData;
-  eng.ctx.putImageData = (...args) => { blitCount++; origPutImageData(...args); };
-  eng.render(); // should blit (palette != prevPal)
-  assert.equal(blitCount, 1, 'first render should blit');
-  eng.render(); // palette unchanged → should skip
-  assert.equal(blitCount, 1, 'second render without palette change should not blit');
+  eng.render();
+  assert.equal(painted, 1, 'first render should paint');
+  eng.render();
+  assert.equal(painted, 2, 'render() is unconditional — always paints');
 });
 
-test('_blit runs again after palette changes', () => {
-  const eng = makeEngine();
-  eng.setPalette('greyscale');
-  let blitCount = 0;
-  eng.ctx.putImageData = () => { blitCount++; };
-  eng.render();
-  assert.equal(blitCount, 1);
-  eng.setPalette('rainbow'); // changes palette
-  eng.render();
-  assert.equal(blitCount, 2, 'should blit after palette switch');
-});
-
-test('_blit runs again after replacePalette', () => {
+test('render() clears _palDirty and writes _renderOff', () => {
   const eng = makeEngine();
   eng.setPalette('sodium');
-  let blitCount = 0;
-  eng.ctx.putImageData = () => { blitCount++; };
+  assert.equal(eng._palDirty, true);
   eng.render();
-  assert.equal(blitCount, 1);
-  eng.replacePalette('cyan');
-  eng.render();
-  assert.equal(blitCount, 2);
+  assert.equal(eng._palDirty, false);
+  assert.equal(eng._renderOff, eng.offset);
 });
 
-test('_prevPal is updated after each blit', () => {
+test('_frame skips paint when floor(offset) is unchanged', () => {
   const eng = makeEngine();
-  eng.setPalette('plasma');
-  eng.render();
-  // After render, _prevPal should match palette.
-  for (let i = 0; i < 256; i++) {
-    assert.equal(eng._prevPal[i], eng.palette[i], `mismatch at index ${i}`);
-  }
+  eng.setPalette('rainbow');
+  eng.render();               // prime state
+  eng.speed = 0;              // freeze automatic advancement
+  eng.running = true;
+  let painted = 0;
+  eng.ctx.putImageData = () => { painted++; };
+
+  // Set _renderOff and offset to the same integer floor.
+  eng._renderOff = 5.3;
+  eng.offset = 5.7;           // same floor (5) as _renderOff
+  eng._last = 1000;
+  eng._frame(1000);           // dt=0 → offset stays 5.7
+  assert.equal(painted, 0, 'should skip when floor unchanged');
 });
 
-test('_writePalette produces same output regardless of offset wrap-around', () => {
-  // Offset values that differ by exactly 255 should produce identical palettes.
+test('_frame paints when floor(offset) crosses an integer', () => {
+  const eng = makeEngine();
+  eng.setPalette('cyan');
+  eng.render();
+  eng.speed = 0;
+  eng.running = true;
+  let painted = 0;
+  eng.ctx.putImageData = () => { painted++; };
+
+  eng._renderOff = 5.3;
+  eng.offset = 6.1;           // floor(6.1)=6 ≠ floor(5.3)=5
+  eng._last = 1000;
+  eng._frame(1000);
+  assert.equal(painted, 1, 'should paint when floor changes');
+  assert.equal(eng._palDirty, false);
+});
+
+test('_frame paints when _palDirty regardless of floor', () => {
+  const eng = makeEngine();
+  eng.render();
+  eng.speed = 0;
+  eng.running = true;
+  let painted = 0;
+  eng.ctx.putImageData = () => { painted++; };
+
+  eng._renderOff = 5.3;
+  eng.offset = 5.7;           // same floor — would normally skip
+  eng._palDirty = true;       // explicit palette change
+  eng._last = 1000;
+  eng._frame(1000);
+  assert.equal(painted, 1, 'should paint when _palDirty');
+});
+
+test('_writePalette produces same output for offsets differing by 255', () => {
   const eng1 = makeEngine();
   const eng2 = makeEngine();
-  eng1.setPalette('sodium'); eng1.offset = 1000;
-  eng2.setPalette('sodium'); eng2.offset = 1000 + 255;
-  eng1._writePalette(); eng2._writePalette();
+  eng1.setPalette('sodium'); eng1.offset = 1000; eng1._writePalette();
+  eng2.setPalette('sodium'); eng2.offset = 1000 + 255; eng2._writePalette();
   for (let i = 1; i < 256; i++) {
     assert.equal(eng1.palette[i], eng2.palette[i], `palette differs at index ${i}`);
   }
@@ -207,7 +232,21 @@ test('_writePalette produces same output regardless of offset wrap-around', () =
 test('palette index 0 is always transparent', () => {
   const eng = makeEngine();
   eng.setPalette('rainbow');
+  eng.render();
   assert.equal(eng.palette[0], 0);
   eng.offset = 12345; eng._writePalette();
   assert.equal(eng.palette[0], 0);
+});
+
+test('replacePalette and transitionTo also set _palDirty', () => {
+  const eng = makeEngine();
+  eng.render();
+  eng._palDirty = false;
+  eng.replacePalette('cyan');
+  assert.equal(eng._palDirty, true);
+
+  eng.render();
+  eng._palDirty = false;
+  eng.transitionTo('plasma');
+  assert.equal(eng._palDirty, true);
 });
