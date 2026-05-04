@@ -1953,22 +1953,31 @@ function importFromSvg(text) {
   if (!dRaw) return null;
   const d = firstSubpathOnly(dRaw);
 
-  // Mount in the document so getTotalLength / getPointAtLength work.
-  const SVG_NS = 'http://www.w3.org/2000/svg';
-  const tmpSvg = document.createElementNS(SVG_NS, 'svg');
-  const tmpPath = document.createElementNS(SVG_NS, 'path');
+  // Clone the full SVG tree so ancestor <g transform="..."> are preserved.
+  // A fixed viewport size lets getCTM() compose all transforms correctly;
+  // the absolute scale doesn't matter since we rescale to panel 1 anyway.
+  const tmpSvg = doc.documentElement.cloneNode(true);
+  tmpSvg.setAttribute('width', '10000');
+  tmpSvg.setAttribute('height', '10000');
+  tmpSvg.style.cssText = 'position:absolute;left:-99999px;width:10000px;height:10000px;opacity:0;pointer-events:none;';
+  const tmpPath = tmpSvg.querySelector('path');
+  if (!tmpPath) return null;
   tmpPath.setAttribute('d', d);
-  tmpSvg.appendChild(tmpPath);
-  tmpSvg.style.cssText = 'position:absolute;width:0;height:0;opacity:0;pointer-events:none;';
   document.body.appendChild(tmpSvg);
   try {
     const totalLen = tmpPath.getTotalLength();
     if (!totalLen || !isFinite(totalLen)) return null;
+    const ctm = tmpPath.getCTM();
     const steps = Math.min(2000, Math.max(20, Math.ceil(totalLen)));
     const raw = [];
     for (let i = 0; i <= steps; i++) {
-      const p = tmpPath.getPointAtLength((i / steps) * totalLen);
-      raw.push({ x: p.x, y: p.y, pressure: 0.5 });
+      const pt = tmpPath.getPointAtLength((i / steps) * totalLen);
+      let px = pt.x, py = pt.y;
+      if (ctm) {
+        px = ctm.a * pt.x + ctm.c * pt.y + ctm.e;
+        py = ctm.b * pt.x + ctm.d * pt.y + ctm.f;
+      }
+      raw.push({ x: px, y: py, pressure: 0.5 });
     }
     // Scale-to-fit panel 1's canvas with padding. SVG path coords
     // are usually much larger than 320×320, so we always rescale.
