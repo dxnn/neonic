@@ -18,12 +18,14 @@ Workflow:
 - Do not include AI attribution in commit messages.
 
 ## Project shape
-- Static HTML/JS app, no build step, no formal test suite.
+- Static HTML/JS app, no build step.
 - Serve with `python3 -m http.server 8000`; entry point is `svg-to-ps.html`.
 - Syntax sanity check for the inline module: `node /tmp/claude/check.js`
   (extracts the `<script type="module">` body and `new Function`-checks it).
-- Browser smoke-test the actual UI changes — type-checking and parse-OK
-  don't catch logic regressions in the canvas pipeline.
+- Unit tests (pure helpers + CycleEngine palette logic): `node --test tests/`
+  Runs without a browser via Node's built-in test runner (node:test). 19 tests.
+- Browser smoke-test the actual UI changes — canvas/DOM code can't be covered
+  by the Node tests.
 
 ## Architecture (4 panels)
 - Panel 1: live drawing (PF outline polygon during drag, disc-stamped from
@@ -48,8 +50,8 @@ Workflow:
 - PSHIFT PNG metadata persists `thinning` so widths round-trip losslessly
   on import (slider restored before recompute).
 
-## Session state — 2026-05-04
-Tests: no formal suite. Syntax check passes; dev server returns 200.
+## Session state — 2026-05-04 (updated)
+Tests: `node --test tests/` — 19 passing. Syntax check passes; dev server returns 200.
 
 Last session shipped 11 commits (`66e09ba..c06bcb0`). What landed:
 - Unified panel 1 + panel 4 via disc-stamping (one rendering pipeline).
