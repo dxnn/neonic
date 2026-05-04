@@ -1264,7 +1264,7 @@ function drawGradient(canvas, palStops) {
   for (let x = 0; x < cssW; x++) {
     const t = 1 - x / Math.max(1, cssW - 1);
     const idx = Math.min(254, Math.max(0, Math.round(t * 254)));
-    const [r, g, b] = ramp[idx];
+    const r = ramp[idx*3], g = ramp[idx*3+1], b = ramp[idx*3+2];
     ctx.fillStyle = `rgb(${r},${g},${b})`;
     ctx.fillRect(x, 0, 1, cssH);
   }
@@ -1283,7 +1283,7 @@ function drawDrawerRampOnto(canvas, palStops) {
   for (let x = 0; x < cssW; x++) {
     const t = 1 - x / Math.max(1, cssW - 1);
     const idx = Math.min(254, Math.max(0, Math.round(t * 254)));
-    const [r, g, b] = ramp[idx];
+    const r = ramp[idx*3], g = ramp[idx*3+1], b = ramp[idx*3+2];
     ctx.fillStyle = `rgb(${r},${g},${b})`;
     ctx.fillRect(x, 0, 1, barH);
   }
@@ -2155,7 +2155,8 @@ $('export').addEventListener('click', async (e) => {
     const pal32 = new Uint32Array(256);
     pal32[0] = 0;
     for (let idx = 1; idx <= 255; idx++) {
-      const [r, g, b] = firstRamp[(256 - idx) % 255];
+      const k = (256 - idx) % 255;
+      const r = firstRamp[k*3], g = firstRamp[k*3+1], b = firstRamp[k*3+2];
       pal32[idx] = (255 << 24) | (b << 16) | (g << 8) | r;
     }
     for (let i = 0; i < bake.indices.length; i++) data32[i] = pal32[bake.indices[i]];

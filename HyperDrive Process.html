@@ -956,8 +956,8 @@ const DEMO_D = window.DEMO_D || "M40,140 C 100,20 200,260 280,120 S 460,20 560,1
     { t: 0.5, color: [ 60, 200, 200] },
     { t: 1,   color: [180, 250, 220] },
   ];
-  const pA = window.PshiftPng.buildRamp(stopsA);
-  const pB = window.PshiftPng.buildRamp(stopsB);
+  const pA = window.HyperDrive.buildRamp(stopsA);
+  const pB = window.HyperDrive.buildRamp(stopsB);
 
   function drawStrip(delta) {
     const W = stripCvs.width, H = stripCvs.height;
@@ -969,10 +969,10 @@ const DEMO_D = window.DEMO_D || "M40,140 C 100,20 200,260 280,120 S 460,20 560,1
       let r, g, b;
       if (i <= delta && delta > 0) {
         const p = (delta - i + 255) % 255;
-        [r, g, b] = pB[p];
+        r = pB[p*3]; g = pB[p*3+1]; b = pB[p*3+2];
       } else {
         const p = ((255 - i) % 255 + 255) % 255;
-        [r, g, b] = pA[p];
+        r = pA[p*3]; g = pA[p*3+1]; b = pA[p*3+2];
       }
       stripCtx.fillStyle = `rgb(${r},${g},${b})`;
       const x = (i / 255) * W;
