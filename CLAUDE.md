@@ -1,0 +1,91 @@
+## Git policy (overrides global)
+You manage git directly in this project. The global "manual git" rule does
+NOT apply here. `git push` remains denied at the permission layer; the user
+handles pushing.
+
+Workflow:
+- Commit after each meaningful change passes its tests. One logical change
+  per commit.
+- Stage only the files relevant to the change. Use `git add <paths>`, not
+  `git add .` or `git add -A`. Do not sweep up unrelated edits.
+- Before committing, run `git diff --staged` and verify the diff is exactly
+  what you intend. If something unintended is staged, `git restore --staged
+  <path>` to unstage.
+- Conventional commit messages: feat:, fix:, refactor:, docs:, test:, chore:.
+  First line under 72 chars. Body if useful, omitted if not.
+- Never commit on red. If a test was passing and now isn't, fix the test or
+  the code before committing — do not commit broken state.
+- Do not include AI attribution in commit messages.
+
+## Project shape
+- Static HTML/JS app, no build step, no formal test suite.
+- Serve with `python3 -m http.server 8000`; entry point is `svg-to-ps.html`.
+- Syntax sanity check for the inline module: `node /tmp/claude/check.js`
+  (extracts the `<script type="module">` body and `new Function`-checks it).
+- Browser smoke-test the actual UI changes — type-checking and parse-OK
+  don't catch logic regressions in the canvas pipeline.
+
+## Architecture (4 panels)
+- Panel 1: live drawing (PF outline polygon during drag, disc-stamped from
+  bezier samples after pointerup).
+- Panel 2: anchor + tangent editor with width handles. Has its own logical →
+  CSS view transform so handles dragged offscreen reframe automatically;
+  manual zoom/pan overrides auto-fit.
+- Panel 3: playlist of palettes — each row's drawer IS the editor.
+- Panel 4: cycling preview, baked from the same disc-stamp algorithm as
+  panel 1 (single rendering pipeline).
+
+## Data model invariants
+- `state.paths[0].size` — base stroke size; scaled by the stroke slider.
+- `anchor.pressure` — source of truth, in [0..1] for PF input, free outside
+  that range when set via width-handle drag inverse formula.
+- `anchor.width` — derived display value: `width = path.size × (1 -
+  thinning + 2 × thinning × pressure)`.
+- Stroke slider scales `path.size`; thinning slider just changes the
+  formula; both call `recomputeWidths()`.
+- Width-handle drag updates `width` and inverts the formula to update
+  `pressure` so the explicit drag survives future thinning changes.
+- PSHIFT PNG metadata persists `thinning` so widths round-trip losslessly
+  on import (slider restored before recompute).
+
+## Session state — 2026-05-04
+Tests: no formal suite. Syntax check passes; dev server returns 200.
+
+Last session shipped 11 commits (`66e09ba..c06bcb0`). What landed:
+- Unified panel 1 + panel 4 via disc-stamping (one rendering pipeline).
+- Absolute anchor widths with per-anchor `pressure` source-of-truth and
+  per-path `size`.
+- Thinning slider; live-recompute on slider changes; persisted to PSHIFT
+  metadata so widths round-trip cleanly.
+- Pen pressure: `simulatePressure: false` for `pointerType === 'pen'`,
+  preserves Apple Pencil pressure values that were previously being
+  overwritten by PF's velocity simulator.
+- Auto-fit + manual zoom/pan in panel 2 (wheel, +/−/fit buttons,
+  middle-click + pan-mode drag).
+- Tap-mode dropdown (drag/add/remove anchor/pan) for mobile users
+  without modifier keys.
+- Panel 3 redesign: each playlist row expands into a per-row drawer
+  containing the full palette editor (preset name+save, dropdown +
+  switch, duplicate, gradient bar with click-to-add and drag-stop,
+  color picker, remove stop, remove palette).
+- Row click triggers smooth forward-feed transition to that palette
+  via the existing cycle-watcher pendingNextIdx flow.
+- SVG import: best-effort sample of first `<path>` (truncates at second
+  M/m), scale-to-fit panel 1, RDP-simplify; missing palette data keeps
+  the user's current playlist instead of resetting.
+- Bug fixes: undo/redo no longer briefly speeds up the cycler (rebake
+  now restores `engine.baseStartOff`); drag handle restricted to grip;
+  preset row tightened so duplicate fits on one line.
+
+Open or future work the user might pick up:
+- SVG transforms: `<g transform>` and per-path `transform` attributes
+  are currently ignored. If a CAD-style export comes in skewed, that's
+  why. Fix is to multiply by `getCTM()` while the path is mounted.
+- PNG/PSHIFT files exported between "store pressure" and "save thinning"
+  (a small build window) land at the 0.4 default thinning. Not corrupt,
+  but absolute widths may be slightly off vs the moment of export.
+  Re-saving fixes them for next time.
+- The width-handle drag at thinning ≈ 0 doesn't survive subsequent
+  slider tweaks (formula is degenerate). Acceptable since the user
+  explicitly said widths are uniform at thinning=0; flag it if it
+  becomes painful in practice.
