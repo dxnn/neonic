@@ -289,6 +289,8 @@
     this.nextStartOff = -1;
     this.offset = 0; this.speed = 40; this.reverse = false;
     this.running = false; this._raf = 0; this._last = 0;
+    this._boundFrame = this._frame.bind(this);
+    this._prevPal = new Uint32Array(256);
   }
   CycleEngine.prototype.setPalette = function (n) {
     this.basePalette = typeof n === 'string' ? PALETTES[n]() : n;
@@ -325,24 +327,33 @@
     const aOff = this.baseStartOff, bOff = this.nextStartOff;
     const off = this.offset;
     const pal = this.palette;
+    // Pre-compute starting positions; decrement+wrap replaces per-iteration modulo.
+    let posA = ((off - aOff) % 255 + 255) % 255;
+    let posB = b !== null ? ((off - bOff) % 255 + 255) % 255 : 0;
+    const iSplitB = b !== null ? off - bOff : -1;
     for (let i = 0; i < 255; i++) {
-      const s = off - i;
-      let pos, p;
-      if (b !== null && s >= bOff) {
-        pos = ((s - bOff) % 255 + 255) % 255;
-        p = b;
-      } else {
-        pos = ((s - aOff) % 255 + 255) % 255;
-        p = a;
-      }
-      const k0 = Math.floor(pos), k1 = (k0 + 1) % 255, f = pos - k0;
+      const useB = i <= iSplitB;
+      const pos = useB ? posB : posA;
+      const p   = useB ? b    : a;
+      if (--posA < 0) posA += 255;
+      if (--posB < 0) posB += 255;
+      const k0 = pos | 0, k1 = (k0 + 1) % 255, f = pos - k0;
       const c0 = p[k0], c1 = p[k1];
-      const r = c0[0] + (c1[0] - c0[0]) * f;
-      const g = c0[1] + (c1[1] - c0[1]) * f;
+      const r  = c0[0] + (c1[0] - c0[0]) * f;
+      const g  = c0[1] + (c1[1] - c0[1]) * f;
       const bl = c0[2] + (c1[2] - c0[2]) * f;
-      pal[i+1] = rgba(r|0, g|0, bl|0, 255);
+      pal[i + 1] = 0xff000000 | ((bl | 0) << 16) | ((g | 0) << 8) | (r | 0);
     }
-    pal[0] = 0;
+  };
+  // Copy palette → pixels → canvas, but only when the palette has actually changed
+  // since the last blit. _prevPal tracks what is currently on the canvas.
+  CycleEngine.prototype._blit = function () {
+    const pal = this.palette, prev = this._prevPal;
+    if (pal[64] === prev[64] && pal[128] === prev[128] && pal[192] === prev[192]) return;
+    prev.set(pal);
+    const data32 = this.data32, idx = this.baked.indices, n = idx.length;
+    for (let i = 0; i < n; i++) data32[i] = pal[idx[i]];
+    this.ctx.putImageData(this.image, 0, 0);
   };
   CycleEngine.prototype._frame = function (now) {
     if (!this.running) return;
@@ -352,25 +363,21 @@
     this._last = now;
     this.offset += this.speed * dt;
     this._writePalette();
-    const data32 = this.data32, idx = this.baked.indices, pal = this.palette, n = idx.length;
-    for (let i = 0; i < n; i++) data32[i] = pal[idx[i]];
-    this.ctx.putImageData(this.image, 0, 0);
-    this._raf = requestAnimationFrame(this._frame.bind(this));
+    this._blit();
+    this._raf = requestAnimationFrame(this._boundFrame);
   };
   CycleEngine.prototype.start = function () {
     if (this.running) return;
     this.running = true; this._last = 0;
-    this._raf = requestAnimationFrame(this._frame.bind(this));
+    this._raf = requestAnimationFrame(this._boundFrame);
   };
   CycleEngine.prototype.stop = function () {
     this.running = false; if (this._raf) cancelAnimationFrame(this._raf); this._raf = 0;
   };
   CycleEngine.prototype.render = function () {
     this._writePalette();
-    const data32 = this.data32, idx = this.baked.indices, pal = this.palette, n = idx.length;
-    for (let i = 0; i < n; i++) data32[i] = pal[idx[i]];
-    this.ctx.putImageData(this.image, 0, 0);
+    this._blit();
   };
 
-  root.HyperDrive = { bakeFromD, bakeFromStroke, CycleEngine, PALETTES };
+  root.HyperDrive = { bakeFromD, bakeFromStroke, CycleEngine, PALETTES, _test: { rgba, hex, buildRamp } };
 })(window);
