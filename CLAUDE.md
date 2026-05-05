@@ -23,7 +23,7 @@ Workflow:
 - Syntax sanity check for the inline module: `node /tmp/claude/check.js`
   (extracts the `<script type="module">` body and `new Function`-checks it).
 - Unit tests (pure helpers + CycleEngine palette logic): `node --test tests/`
-  Runs without a browser via Node's built-in test runner (node:test). 19 tests.
+  Runs without a browser via Node's built-in test runner (node:test). 22 tests.
 - Browser smoke-test the actual UI changes — canvas/DOM code can't be covered
   by the Node tests.
 
@@ -91,3 +91,17 @@ Open or future work the user might pick up:
   slider tweaks (formula is degenerate). Acceptable since the user
   explicitly said widths are uniform at thinning=0; flag it if it
   becomes painful in practice.
+
+## Naming
+- Project name is **Neonic**. The runtime global is `window.Neonic`
+  (was `window.HyperDrive` in earlier commits — the name was a working
+  title). All consumers use `window.Neonic.{CycleEngine, bakeFromD,
+  bakeFromStroke, PALETTES, buildRamp}`.
+
+## Article
+- `neonic_article.html` is the process essay (9-stage walkthrough of
+  the engine, with live demos). Replaces `HyperDrive Process.html`.
+  The prelude (before the Autotext seam) is a placeholder for the user
+  to rewrite. The walkthrough section between the Autotext and Fin
+  seams contains the engine stages with live demos that depend on
+  `window.Neonic` being loaded by the topbar.
