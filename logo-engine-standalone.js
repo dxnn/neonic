@@ -1,8 +1,8 @@
 // logo-engine-standalone.js
 // Self-contained palette-cycling engine. No deps, no JSX.
 // Usage:
-//   const baked = HyperDrive.bakeFromD({ d, scale, strokeWidth, half, padding });
-//   const eng = new HyperDrive.CycleEngine(canvasEl, baked);
+//   const baked = Neonic.bakeFromD({ d, scale, strokeWidth, half, padding });
+//   const eng = new Neonic.CycleEngine(canvasEl, baked);
 //   eng.setPalette('rainbow'); eng.setSpeed(60); eng.start();
 
 (function (root) {
@@ -386,5 +386,5 @@
     this._paint();
   };
 
-  root.HyperDrive = { bakeFromD, bakeFromStroke, CycleEngine, PALETTES, buildRamp, _test: { rgba, hex } };
+  root.Neonic = { bakeFromD, bakeFromStroke, CycleEngine, PALETTES, buildRamp, _test: { rgba, hex } };
 })(window);

@@ -567,7 +567,7 @@ window.DEMO_D = "M40,140 C 100,20 200,260 280,120 S 460,20 560,140 S 740,260 800
   const sel = document.getElementById('s5-pal');
   const meta = document.getElementById('s5-meta');
   const W = cvs.width, H = cvs.height;
-  const palettes = window.HyperDrive.PALETTES;
+  const palettes = window.Neonic.PALETTES;
   for (const name of Object.keys(palettes)) {
     const o = document.createElement('option'); o.value = name; o.textContent = name;
     sel.appendChild(o);
@@ -599,18 +599,18 @@ window.DEMO_D = "M40,140 C 100,20 200,260 280,120 S 460,20 560,140 S 740,260 800
   const palSel = document.getElementById('s6-pal');
   const speedIn = document.getElementById('s6-speed');
   const meta = document.getElementById('s6-meta');
-  const palettes = window.HyperDrive.PALETTES;
+  const palettes = window.Neonic.PALETTES;
   for (const name of Object.keys(palettes)) {
     const o = document.createElement('option'); o.value = name; o.textContent = name;
     palSel.appendChild(o);
   }
-  const baked = window.HyperDrive.bakeFromD({
+  const baked = window.Neonic.bakeFromD({
     d: DEMO_D, scale: 1, padding: 24, strokeWidth: 22, half: 'first',
   });
   // size the canvas to baked dims, but cap visual width via CSS
   cvs.width = baked.width; cvs.height = baked.height;
   cvs.style.width = '100%'; cvs.style.height = 'auto';
-  const eng = new window.HyperDrive.CycleEngine(cvs, baked);
+  const eng = new window.Neonic.CycleEngine(cvs, baked);
   eng.setPalette('rainbow'); palSel.value = 'rainbow';
   eng.setSpeed(60);
   eng.start();
@@ -956,8 +956,8 @@ const DEMO_D = window.DEMO_D || "M40,140 C 100,20 200,260 280,120 S 460,20 560,1
     { t: 0.5, color: [ 60, 200, 200] },
     { t: 1,   color: [180, 250, 220] },
   ];
-  const pA = window.HyperDrive.buildRamp(stopsA);
-  const pB = window.HyperDrive.buildRamp(stopsB);
+  const pA = window.Neonic.buildRamp(stopsA);
+  const pB = window.Neonic.buildRamp(stopsB);
 
   function drawStrip(delta) {
     const W = stripCvs.width, H = stripCvs.height;
@@ -987,12 +987,12 @@ const DEMO_D = window.DEMO_D || "M40,140 C 100,20 200,260 280,120 S 460,20 560,1
   drawStrip(0);
 
   // Live engine demo — bake the demo path, run cycling, trigger transitions.
-  const baked = window.HyperDrive.bakeFromD({
+  const baked = window.Neonic.bakeFromD({
     d: window.DEMO_D, scale: 1, padding: 24, strokeWidth: 22, half: 'first',
   });
   liveCvs.width = baked.width; liveCvs.height = baked.height;
   liveCvs.style.width = '100%'; liveCvs.style.height = 'auto';
-  const eng = new window.HyperDrive.CycleEngine(liveCvs, baked);
+  const eng = new window.Neonic.CycleEngine(liveCvs, baked);
   eng.setPalette(pA);
   eng.setSpeed(60);
   eng.start();

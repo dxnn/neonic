@@ -337,7 +337,7 @@
 
 <footer>
   Curious how it works under the hood?
-  <a href="HyperDrive Process.html">Read the process essay &rarr;</a>
+  <a href="neonic_article.html">Read the process essay &rarr;</a>
 </footer>
 
 </div>
@@ -1147,7 +1147,7 @@ function rebake() {
   try {
     // Always bake from bezier samples with anchor widths. Panel 4
     // uses the same disc-stamping algorithm as panel 1.
-    baked = window.HyperDrive.bakeFromStroke({
+    baked = window.Neonic.bakeFromStroke({
       stroke: samplePath(state.paths[0], 16),
       scale: 1.6, padding: 24, half: 'full',
     });
@@ -1162,12 +1162,12 @@ function rebake() {
     : null;
   if (engine) engine.stop();
 
-  engine = new window.HyperDrive.CycleEngine(outCvs, baked);
+  engine = new window.Neonic.CycleEngine(outCvs, baked);
   // First-bake palette: prefer the displayed playlist entry; fall back
   // to whatever the editor's currentRamp is (which the playlist init
   // also primes from playlist[0]).
   const seedRamp = (displayedIdx >= 0 && playlist[displayedIdx])
-    ? window.HyperDrive.buildRamp(playlist[displayedIdx].stops)
+    ? window.Neonic.buildRamp(playlist[displayedIdx].stops)
     : currentRamp;
   engine.setPalette(seedRamp);
   if (prev) {
@@ -1192,7 +1192,7 @@ function rebake() {
 
 // ─── Palette presets ─────────────────────────────────────────────────────
 // Saved presets ("seeds" in the legacy storage key) live in localStorage
-// and merge with HyperDrive.PALETTES in every drawer's preset dropdown.
+// and merge with Neonic.PALETTES in every drawer's preset dropdown.
 const PRESETS_KEY = 'pshift.seeds';
 function loadCustomPresets() {
   try { return JSON.parse(localStorage.getItem(PRESETS_KEY) || '{}'); }
@@ -1212,7 +1212,7 @@ function buildStopsFromPreset(name) {
     if (!stored) return null;
     return stored.map(s => ({ t: s.t, color: s.color.slice() }));
   }
-  const ramp = window.HyperDrive.PALETTES[name];
+  const ramp = window.Neonic.PALETTES[name];
   if (!ramp) return null;
   const r = ramp();           // Uint8Array(255*3): entry i at r[i*3..i*3+2]
   const N = 255;
@@ -1260,7 +1260,7 @@ function drawGradient(canvas, palStops) {
   canvas.height = Math.round(cssH * dpr);
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const ramp = window.HyperDrive.buildRamp(palStops);
+  const ramp = window.Neonic.buildRamp(palStops);
   for (let x = 0; x < cssW; x++) {
     const t = 1 - x / Math.max(1, cssW - 1);
     const idx = Math.min(254, Math.max(0, Math.round(t * 254)));
@@ -1279,7 +1279,7 @@ function drawDrawerRampOnto(canvas, palStops) {
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const barH = cssH - 26;
-  const ramp = window.HyperDrive.buildRamp(palStops);
+  const ramp = window.Neonic.buildRamp(palStops);
   for (let x = 0; x < cssW; x++) {
     const t = 1 - x / Math.max(1, cssW - 1);
     const idx = Math.min(254, Math.max(0, Math.round(t * 254)));
@@ -1356,7 +1356,7 @@ function syncRemoveStopBtn() {
 function rebuildRamp() {
   if (activeIdx < 0) return;
   const palStops = playlist[activeIdx].stops;
-  currentRamp = window.HyperDrive.buildRamp(palStops);
+  currentRamp = window.Neonic.buildRamp(palStops);
   // Live edits on the displayed palette flow into the engine so the
   // user sees their tweaks reflected immediately.
   if (engine && activeIdx === displayedIdx) engine.replacePalette(currentRamp);
@@ -1378,7 +1378,7 @@ function setActive(idx) {
   if (idx < 0 || idx >= playlist.length) return;
   activeIdx = idx;
   selectedStop = 0;
-  currentRamp = window.HyperDrive.buildRamp(playlist[idx].stops);
+  currentRamp = window.Neonic.buildRamp(playlist[idx].stops);
   applyOpenStateOnly();
   drawDrawerRamp();
   syncStopColorInput();
@@ -1390,7 +1390,7 @@ function setActive(idx) {
   // the 254-tick band, and tweens speed during the transition.
   if (engine && idx !== displayedIdx && idx !== pendingNextIdx) {
     engine.transitionTo(
-      window.HyperDrive.buildRamp(playlist[idx].stops),
+      window.Neonic.buildRamp(playlist[idx].stops),
       engine.offset);
     pendingNextIdx = idx;
   }
@@ -1469,7 +1469,7 @@ function removePlaylistItem(idx) {
     pendingNextIdx = -1;
     const entry = playlist[displayedIdx];
     if (engine && entry) {
-      engine.setPalette(window.HyperDrive.buildRamp(entry.stops));
+      engine.setPalette(window.Neonic.buildRamp(entry.stops));
       engine.setSpeed(Math.abs(entry.speed));
     }
     targetCycles = entry ? (entry.cycles || 1) : 1;
@@ -1529,7 +1529,7 @@ function startCycleWatcher() {
           const nextIdx = pickNextIdx();
           const nextStart = engine.baseStartOff + targetCycles * 255;
           engine.transitionTo(
-            window.HyperDrive.buildRamp(playlist[nextIdx].stops),
+            window.Neonic.buildRamp(playlist[nextIdx].stops),
             nextStart);
           pendingNextIdx = nextIdx;
         }
@@ -1543,7 +1543,7 @@ function startCycleWatcher() {
 function buildPresetOptions(sel, currentName) {
   sel.innerHTML = '';
   const truncate = (s) => s.length > 17 ? s.slice(0, 17) + '…' : s;
-  for (const name of Object.keys(window.HyperDrive.PALETTES)) {
+  for (const name of Object.keys(window.Neonic.PALETTES)) {
     const o = document.createElement('option');
     o.value = name; o.textContent = truncate(name); o.title = name;
     sel.appendChild(o);
@@ -1706,11 +1706,11 @@ function renderPlaylist() {
       playlist[i].presetName = presetSel.value;
       if (i === activeIdx) selectedStop = 0;
       if (engine && i === displayedIdx) {
-        engine.replacePalette(window.HyperDrive.buildRamp(newStops));
+        engine.replacePalette(window.Neonic.buildRamp(newStops));
       }
       drawRowSwatch(i);
       if (i === activeIdx) {
-        currentRamp = window.HyperDrive.buildRamp(newStops);
+        currentRamp = window.Neonic.buildRamp(newStops);
         drawDrawerRamp();
         syncStopColorInput();
         syncRemoveStopBtn();
@@ -1755,7 +1755,7 @@ function renderPlaylist() {
         const cssW = ramp.clientWidth || 1;
         const t = Math.max(0, Math.min(1, 1 - x / cssW));
         const idx = Math.min(254, Math.max(0, Math.round(t * 254)));
-        const built = window.HyperDrive.buildRamp(palStops);
+        const built = window.Neonic.buildRamp(palStops);
         palStops.push({ t, color: built[idx].slice() });
         selectedStop = palStops.length - 1;
         rebuildRamp();
@@ -2089,7 +2089,7 @@ function applyImport(imp) {
   displayedIdx = 0;
   pendingNextIdx = -1;
   targetCycles = playlist[0]?.cycles || 1;
-  currentRamp = window.HyperDrive.buildRamp(playlist[0].stops);
+  currentRamp = window.Neonic.buildRamp(playlist[0].stops);
   if (engine && playlist[0]) {
     engine.setPalette(currentRamp);
     engine.setSpeed(Math.abs(playlist[0].speed));
@@ -2138,7 +2138,7 @@ $('export').addEventListener('click', async (e) => {
   try {
     const sizeMul = +$('exportSize').value || 1;
     const exportScale = 1.6 * sizeMul;
-    const bake = window.HyperDrive.bakeFromStroke({
+    const bake = window.Neonic.bakeFromStroke({
       stroke: samplePath(state.paths[0], 16),
       scale: exportScale, padding: 24, half: 'full',
     });
@@ -2146,7 +2146,7 @@ $('export').addEventListener('click', async (e) => {
     // — i.e. the exact frame the embed will display the moment it starts.
     // The engine's formula at off=0, baseStartOff=0 maps palette index `idx`
     // to ramp[(256 - idx) mod 255] (so palette[1] = ramp[0]).
-    const firstRamp = window.HyperDrive.buildRamp(playlist[0].stops);
+    const firstRamp = window.Neonic.buildRamp(playlist[0].stops);
     const off = document.createElement('canvas');
     off.width = bake.width; off.height = bake.height;
     const offCtx = off.getContext('2d');
@@ -2287,7 +2287,7 @@ playlist.push({
 activeIdx = -1;
 displayedIdx = 0;
 selectedStop = 0;
-currentRamp = window.HyperDrive.buildRamp(playlist[0].stops);
+currentRamp = window.Neonic.buildRamp(playlist[0].stops);
 refreshHistoryButtons();
 renderPlaylist();
 startCycleWatcher();

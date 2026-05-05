@@ -11,7 +11,7 @@
 //   const decoded = PshiftPng.decode(uint8Array);
 //   // → { width, height, indices, metadata }
 //
-// To build a palette ramp from decoded stops, use HyperDrive.buildRamp(stops).
+// To build a palette ramp from decoded stops, use Neonic.buildRamp(stops).
 
 (function (root) {
 

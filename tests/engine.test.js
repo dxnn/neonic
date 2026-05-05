@@ -49,8 +49,8 @@ const ctx = vm.createContext({
   requestAnimationFrame: () => {},
 });
 vm.runInContext(src, ctx);
-const { HyperDrive } = ctx.window;
-const { CycleEngine, PALETTES, buildRamp, _test: { rgba, hex } } = HyperDrive;
+const { Neonic } = ctx.window;
+const { CycleEngine, PALETTES, buildRamp, _test: { rgba, hex } } = Neonic;
 
 function makeEngine() { return new CycleEngine(mockCanvas(), mockBaked()); }
 

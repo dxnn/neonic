@@ -19,7 +19,7 @@
     });
     const { width, height, indices, metadata } =
       window.PshiftPng.decode(new Uint8Array(buf));
-    const eng = new window.HyperDrive.CycleEngine(canvas, { width, height, indices });
+    const eng = new window.Neonic.CycleEngine(canvas, { width, height, indices });
     const palettes = metadata.palettes;
     const mode = metadata.playMode || 'sequential';
     let curIdx = (typeof metadata.activeIdx === 'number'
@@ -30,7 +30,7 @@
 
     function applyPalette(i) {
       const p = palettes[i];
-      eng.setPalette(window.HyperDrive.buildRamp(p.stops));
+      eng.setPalette(window.Neonic.buildRamp(p.stops));
       eng.setSpeed(Math.abs(p.speed));
     }
     applyPalette(curIdx);
@@ -60,7 +60,7 @@
                  while (next === curIdx); }
           pendingNext = next;
           eng.transitionTo(
-            window.HyperDrive.buildRamp(palettes[next].stops),
+            window.Neonic.buildRamp(palettes[next].stops),
             eng.baseStartOff + target * 255);
         }
       }
