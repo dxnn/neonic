@@ -1,15 +1,18 @@
-// pshift-png.js
-// Encode / decode .pshift.png — a PNG that's both a normal RGBA preview
+// neonic-png.js
+// Encode / decode .neonic.png — a PNG that's both a normal RGBA preview
 // AND carries the precomputed palette-cycle bake (indices buffer +
 // editable anchors + palette stops + speed) in an iTXt chunk keyed
-// 'pshift'.
+// 'neonic'.
 //
 // Usage:
-//   const bytes = await PshiftPng.encode({ canvas, indices, ...meta });
+//   const bytes = await NeonicPng.encode({ canvas, indices, ...meta });
 //   // bytes is a Uint8Array; Blob it and download.
 //
-//   const decoded = PshiftPng.decode(uint8Array);
+//   const decoded = NeonicPng.decode(uint8Array);
 //   // → { width, height, indices, metadata }
+//
+// Decoder also accepts the legacy 'pshift' iTXt key (pre-rename), so
+// old .pshift.png exports continue to load until they're re-saved.
 //
 // To build a palette ramp from decoded stops, use Neonic.buildRamp(stops).
 
@@ -137,7 +140,7 @@
       playMode,
       strokeWidth, thinning, scale, padding, half,
     };
-    return injectIText(pngBytes, 'pshift', JSON.stringify(meta));
+    return injectIText(pngBytes, 'neonic', JSON.stringify(meta));
   }
 
   // decode(uint8) → { width, height, indices, metadata }
@@ -153,7 +156,7 @@
         let p = dataStart;
         while (p < dataEnd && pngBytes[p] !== 0) p++;
         const keyword = new TextDecoder().decode(pngBytes.subarray(dataStart, p));
-        if (keyword === 'pshift') {
+        if (keyword === 'neonic' || keyword === 'pshift') {
           p++;                   // null after keyword
           const compFlag = pngBytes[p++];
           p++;                   // compression method
@@ -168,7 +171,7 @@
       }
       pos = dataEnd + 4;
     }
-    if (!meta) throw new Error('No pshift metadata in PNG');
+    if (!meta) throw new Error('No neonic metadata in PNG');
     const indices = base64ToBytes(meta.indices);
     if (indices.length !== meta.width * meta.height) {
       throw new Error('indices length does not match width × height');
@@ -176,5 +179,5 @@
     return { width: meta.width, height: meta.height, indices, metadata: meta };
   }
 
-  root.PshiftPng = { encode, decode };
+  root.NeonicPng = { encode, decode };
 })(window);

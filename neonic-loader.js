@@ -1,14 +1,12 @@
-// pshift-loader.js
-// Mount a .pshift.png onto a <canvas>. Requires logo-engine-standalone.js
-// and pshift-png.js to have been loaded first as globals.
+// neonic-loader.js
+// Mount a .neonic.png onto a <canvas>. Requires logo-engine-standalone.js
+// and neonic-png.js to have been loaded first as globals.
 //
-//   <canvas class="logo-cycle" data-src="logo.pshift.png"></canvas>
-//   <script src="logo-engine-standalone.js"></script>
-//   <script src="pshift-png.js"></script>
-//   <script src="pshift-loader.js"></script>
-//   <script>PshiftLoader.mountAll('.logo-cycle');</script>
+//   <canvas class="logo-cycle" data-src="logo.neonic.png"></canvas>
+//   <script src="neonic-playback.js"></script>
+//   <script>NeonicLoader.mountAll('.logo-cycle');</script>
 //
-// Or call PshiftLoader.mount(canvas) directly. Returns the CycleEngine.
+// Or call NeonicLoader.mount(canvas) directly. Returns the CycleEngine.
 
 (function (root) {
   async function mount(canvas, src) {
@@ -18,7 +16,7 @@
       return r.arrayBuffer();
     });
     const { width, height, indices, metadata } =
-      window.PshiftPng.decode(new Uint8Array(buf));
+      window.NeonicPng.decode(new Uint8Array(buf));
     const eng = new window.Neonic.CycleEngine(canvas, { width, height, indices });
     const palettes = metadata.palettes;
     const mode = metadata.playMode || 'sequential';
@@ -75,5 +73,5 @@
     return Promise.all(Array.from(canvases).map((c) => mount(c)));
   }
 
-  root.PshiftLoader = { mount, mountAll };
+  root.NeonicLoader = { mount, mountAll };
 })(window);

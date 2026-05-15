@@ -257,7 +257,7 @@
 <div class="wrap">
 
 <header>
-  <canvas class="logo-cycle" data-src="logo.pshift.png"
+  <canvas class="logo-cycle" data-src="logo.neonic.png"
           style="display:block;height:36px;width:auto;margin-bottom:14px"></canvas>
   <div class="meta">SVG path → palette-cycle · drawing tool</div>
   <h1>Sketch a stroke. Tweak the curve. Watch the palette cycle.</h1>
@@ -345,9 +345,9 @@
 </div>
 
 <script src="logo-engine-standalone.js"></script>
-<script src="pshift-png.js"></script>
-<script src="pshift-loader.js"></script>
-<script>PshiftLoader.mountAll('.logo-cycle');</script>
+<script src="neonic-png.js"></script>
+<script src="neonic-loader.js"></script>
+<script>NeonicLoader.mountAll('.logo-cycle');</script>
 <script type="module">
 import { getStroke, getStrokePoints } from './perfect-freehand.mjs';
 
@@ -1197,7 +1197,7 @@ function rebake() {
 // ─── Palette presets ─────────────────────────────────────────────────────
 // Saved presets ("seeds" in the legacy storage key) live in localStorage
 // and merge with Neonic.PALETTES in every drawer's preset dropdown.
-const PRESETS_KEY = 'pshift.seeds';
+const PRESETS_KEY = 'neonic.seeds';
 function loadCustomPresets() {
   try { return JSON.parse(localStorage.getItem(PRESETS_KEY) || '{}'); }
   catch { return {}; }
@@ -2011,11 +2011,11 @@ function importFromSvg(text) {
   }
 }
 
-// Decode a .pshift.png. Anchors are required; everything else is
+// Decode a .neonic.png. Anchors are required; everything else is
 // optional and gets a default at apply time.
-function importFromPshiftPng(buf) {
+function importFromNeonicPng(buf) {
   let decoded;
-  try { decoded = window.PshiftPng.decode(buf); }
+  try { decoded = window.NeonicPng.decode(buf); }
   catch (err) {
     alert('Could not import: ' + err.message);
     return null;
@@ -2075,7 +2075,7 @@ function applyImport(imp) {
   }
   recomputeWidths(state.paths[0], +thinningIn.value);
   // Replace the playlist only when the import provided one. Imports
-  // without palette data (SVG, or partial pshift) keep whatever
+  // without palette data (SVG, or partial neonic.png) keep whatever
   // playlist the user already had.
   if (imp.palettes) {
     playlist.length = 0;
@@ -2121,7 +2121,7 @@ $('import').addEventListener('click', () => {
         }
       } else {
         const buf = new Uint8Array(await file.arrayBuffer());
-        imp = importFromPshiftPng(buf);
+        imp = importFromNeonicPng(buf);
         if (!imp) return;  // alert already shown
       }
     } catch (err) {
@@ -2165,7 +2165,7 @@ $('export').addEventListener('click', async (e) => {
     }
     for (let i = 0; i < bake.indices.length; i++) data32[i] = pal32[bake.indices[i]];
     offCtx.putImageData(im, 0, 0);
-    const bytes = await window.PshiftPng.encode({
+    const bytes = await window.NeonicPng.encode({
       canvas: off,
       indices: bake.indices,
       anchors: state.paths[0].anchors,
@@ -2186,7 +2186,7 @@ $('export').addEventListener('click', async (e) => {
     const url = URL.createObjectURL(new Blob([bytes], { type: 'image/png' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'logo.pshift.png';
+    a.download = 'logo.neonic.png';
     a.click();
     URL.revokeObjectURL(url);
   } finally {

@@ -1,8 +1,8 @@
 // build-playback.js
 // Concatenate the three runtime files into a single playback bundle so a
 // page can ship one <script> tag instead of three. The sources are each
-// self-contained IIFEs that define their own globals (Neonic, PshiftPng,
-// PshiftLoader), so straight concatenation preserves behavior.
+// self-contained IIFEs that define their own globals (Neonic, NeonicPng,
+// NeonicLoader), so straight concatenation preserves behavior.
 //
 // Run: node build-playback.js
 // Out: neonic-playback.js
@@ -11,8 +11,8 @@ const fs = require('fs');
 
 const SOURCES = [
   'logo-engine-standalone.js',
-  'pshift-png.js',
-  'pshift-loader.js',
+  'neonic-png.js',
+  'neonic-loader.js',
 ];
 const OUT = 'neonic-playback.js';
 

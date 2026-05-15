@@ -50,7 +50,7 @@
 <body>
 
 <header class="navbar">
-  <canvas class="logo-cycle" data-src="logo.pshift.png"></canvas>
+  <canvas class="logo-cycle" data-src="logo.neonic.png"></canvas>
   <nav>
     <a href="#">Docs</a>
     <a href="#">Pricing</a>
@@ -62,7 +62,7 @@
 
 <main>
   <h1>Embedded palette-cycle logo.</h1>
-  <p>The marquee above is driven by <code>logo.pshift.png</code> exported from
+  <p>The marquee above is driven by <code>logo.neonic.png</code> exported from
     <code>neonic.html</code>. The PNG carries a precomputed bake plus the
     palette stops in metadata, so there's no per-load bake step. Same file,
     three display sizes — all sharing the underlying engine.</p>
@@ -72,32 +72,32 @@
   <div class="sizes">
     <div class="row s-24">
       <span class="label">24px</span>
-      <div class="swatch"><canvas class="logo-cycle" data-src="logo.pshift.png"></canvas></div>
+      <div class="swatch"><canvas class="logo-cycle" data-src="logo.neonic.png"></canvas></div>
     </div>
     <div class="row s-48">
       <span class="label">48px</span>
-      <div class="swatch"><canvas class="logo-cycle" data-src="logo.pshift.png"></canvas></div>
+      <div class="swatch"><canvas class="logo-cycle" data-src="logo.neonic.png"></canvas></div>
     </div>
     <div class="row s-96">
       <span class="label">96px</span>
-      <div class="swatch"><canvas class="logo-cycle" data-src="logo.pshift.png"></canvas></div>
+      <div class="swatch"><canvas class="logo-cycle" data-src="logo.neonic.png"></canvas></div>
     </div>
   </div>
 
   <p style="margin-top: 40px">The whole embed is this:</p>
-<pre>&lt;canvas class="logo-cycle" data-src="logo.pshift.png"&gt;&lt;/canvas&gt;
+<pre>&lt;canvas class="logo-cycle" data-src="logo.neonic.png"&gt;&lt;/canvas&gt;
 
 &lt;script src="logo-engine-standalone.js"&gt;&lt;/script&gt;
-&lt;script src="pshift-png.js"&gt;&lt;/script&gt;
-&lt;script src="pshift-loader.js"&gt;&lt;/script&gt;
-&lt;script&gt;PshiftLoader.mountAll('.logo-cycle');&lt;/script&gt;</pre>
+&lt;script src="neonic-png.js"&gt;&lt;/script&gt;
+&lt;script src="neonic-loader.js"&gt;&lt;/script&gt;
+&lt;script&gt;NeonicLoader.mountAll('.logo-cycle');&lt;/script&gt;</pre>
 </main>
 
 <script src="logo-engine-standalone.js"></script>
-<script src="pshift-png.js"></script>
-<script src="pshift-loader.js"></script>
+<script src="neonic-png.js"></script>
+<script src="neonic-loader.js"></script>
 <script>
-PshiftLoader.mountAll('.logo-cycle').catch((err) => {
+NeonicLoader.mountAll('.logo-cycle').catch((err) => {
   const canvases = document.querySelectorAll('.logo-cycle');
   const box = document.getElementById('error');
   box.hidden = false;

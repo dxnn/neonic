@@ -6,7 +6,7 @@ self-describing PNG format that carries its own animation data.
 You draw a stroke, the editor bakes it into an indexed bitmap, and the
 runtime animates it by rotating a 255-entry color palette per frame.
 The pixels never change — only the color lookup does. The output is a
-`.pshift.png`: a regular PNG that any image viewer can display (showing
+`.neonic.png`: a regular PNG that any image viewer can display (showing
 the first frame as a static preview), with the precomputed bake and the
 palette stops tucked into an iTXt metadata chunk. Drop one next to the
 player and it animates.
@@ -14,9 +14,9 @@ player and it animates.
 ## Play a logo on your site
 
 ```html
-<canvas class="logo-cycle" data-src="logo.pshift.png"></canvas>
+<canvas class="logo-cycle" data-src="logo.neonic.png"></canvas>
 <script src="neonic-playback.js"></script>
-<script>PshiftLoader.mountAll('.logo-cycle');</script>
+<script>NeonicLoader.mountAll('.logo-cycle');</script>
 ```
 
 `neonic-playback.js` is a single ~27 KB file with no dependencies. If
@@ -43,7 +43,7 @@ The tool has four panels:
 4. **Preview** — the cycling animation in real time, baked from the
    same disc-stamp pipeline the draw panel uses.
 
-Export from the toolbar → you get a `logo.pshift.png` carrying the
+Export from the toolbar → you get a `logo.neonic.png` carrying the
 bake and the full palette playlist.
 
 ## File map
@@ -53,11 +53,11 @@ bake and the full palette playlist.
 | `neonic.html` | The drawing tool |
 | `neonic-playback.js` | Bundled playback runtime — what consumers ship |
 | `logo-engine-standalone.js` | Engine: `CycleEngine`, `buildRamp`, `bakeFromD`, `bakeFromStroke` |
-| `pshift-png.js` | `.pshift.png` codec (iTXt chunk read/write) |
-| `pshift-loader.js` | Playlist scheduler + crossfade controller |
+| `neonic-png.js` | `.neonic.png` codec (iTXt chunk read/write) |
+| `neonic-loader.js` | Playlist scheduler + crossfade controller |
 | `build-playback.js` | Concatenates the three runtime files into the bundle |
 | `perfect-freehand.mjs` | Vendored stroke renderer (Steve Ruiz, MIT) |
-| `logo.pshift.png` | Sample logo |
+| `logo.neonic.png` | Sample logo |
 | `logo-embed.html` | Embed demo: navbar mark + size comparisons |
 | `tests/engine.test.js` | Node test suite — 22 tests, no browser needed |
 | `extra/` | Junk drawer — superseded files, spare PNG samples; gitignored |
@@ -71,7 +71,7 @@ node build-playback.js                # rebuild neonic-playback.js
 ```
 
 Edit the three runtime source files
-(`logo-engine-standalone.js`, `pshift-png.js`, `pshift-loader.js`)
+(`logo-engine-standalone.js`, `neonic-png.js`, `neonic-loader.js`)
 and re-run `node build-playback.js` to refresh the bundle. The bundle
 is committed so consumers can grab a working copy without running node.
 

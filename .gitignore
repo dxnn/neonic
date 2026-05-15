@@ -2,7 +2,7 @@
 .claude/
 
 # Junk drawer: superseded files, scratch HTML, pre-refactor JSX shards,
-# spare .pshift.png samples. Kept on disk for reference but outside the
+# spare .neonic.png samples. Kept on disk for reference but outside the
 # ship surface. Git history retains the tracked ones.
 extra/
 
@@ -10,6 +10,6 @@ extra/
 .DS_Store
 
 # Local mirror of the article's deploy site (inwordsandpictures.com/neonic).
-# Carries copies of neonic-playback.js and logo.pshift.png so the article's
+# Carries copies of neonic-playback.js and logo.neonic.png so the article's
 # `../` paths resolve when previewing nwp/neonic/neonic_article.html locally.
 nwp/

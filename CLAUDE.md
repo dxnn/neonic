@@ -49,7 +49,7 @@ Workflow:
   formula; both call `recomputeWidths()`.
 - Width-handle drag updates `width` and inverts the formula to update
   `pressure` so the explicit drag survives future thinning changes.
-- PSHIFT PNG metadata persists `thinning` so widths round-trip losslessly
+- NEONIC PNG metadata persists `thinning` so widths round-trip losslessly
   on import (slider restored before recompute).
 
 ## Session state — 2026-05-04 (updated)
@@ -59,7 +59,7 @@ Last session shipped 11 commits (`66e09ba..c06bcb0`). What landed:
 - Unified panel 1 + panel 4 via disc-stamping (one rendering pipeline).
 - Absolute anchor widths with per-anchor `pressure` source-of-truth and
   per-path `size`.
-- Thinning slider; live-recompute on slider changes; persisted to PSHIFT
+- Thinning slider; live-recompute on slider changes; persisted to NEONIC
   metadata so widths round-trip cleanly.
 - Pen pressure: `simulatePressure: false` for `pointerType === 'pen'`,
   preserves Apple Pencil pressure values that were previously being
@@ -85,7 +85,7 @@ Open or future work the user might pick up:
 - SVG transforms: `<g transform>` and per-path `transform` attributes
   are currently ignored. If a CAD-style export comes in skewed, that's
   why. Fix is to multiply by `getCTM()` while the path is mounted.
-- PNG/PSHIFT files exported between "store pressure" and "save thinning"
+- PNG/NEONIC files exported between "store pressure" and "save thinning"
   (a small build window) land at the 0.4 default thinning. Not corrupt,
   but absolute widths may be slightly off vs the moment of export.
   Re-saving fixes them for next time.
