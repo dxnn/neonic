@@ -52,7 +52,47 @@ Workflow:
 - NEONIC PNG metadata persists `thinning` so widths round-trip losslessly
   on import (slider restored before recompute).
 
-## Session state — 2026-05-04 (updated)
+## Session state — 2026-05-15 (updated)
+Tests: `node --test tests/*.test.js` — 22 passing. Syntax check passes.
+
+This session: resolution-adaptive playback + smaller PNGs
+(`b38f931..6ff76c5`, 2 commits).
+
+What landed:
+- `Neonic.bakeFromAnchors({ anchors, scale, padding, half })` and
+  `Neonic.sampleAnchors(anchors, perSeg)` added to the runtime so any
+  consumer can re-bake from anchor metadata without pulling in editor
+  internals.
+- `NeonicLoader.mount` now rebakes from `metadata.anchors` at the
+  canvas's `clientWidth × devicePixelRatio × supersample` (default
+  supersample=1, override via `data-supersample` attr). Legacy PNGs
+  without anchors fall back to embedded indices.
+- `NeonicPng.encode` accepts `indices: null/undefined` and omits the
+  field. Decoder returns `indices: null` when absent.
+- `index.html` export stops embedding the indices buffer. The
+  exportSize dropdown now only affects the static preview image inside
+  the PNG (its title attribute spells that out).
+- `compare-playback.html` is a side-by-side visual QA tool that mounts
+  the same source PNG in three modes (legacy / opt ss=1 / opt ss=2) at
+  four canvas sizes, plus a file-size delta panel.
+
+Measured impact on the existing `logo.neonic.png`:
+- File: 326 KB → 33 KB (~90% smaller) with identical preview image,
+  ~98% smaller if the preview is shrunk too.
+- Per-frame compute (60px CSS canvas, dpr=1): 225k px → 3.8k px (~58×
+  less work). Scales with the canvas, not the export.
+
+Open / future work:
+- Default `supersample` is 1. On dpr=1 displays, very small canvases
+  (≤80px) look slightly chunky; bumping to `data-supersample="2"`
+  fixes it at the cost of 4× the pixel work. On retina this is moot.
+  If the comparison tool shows the chunkiness is unacceptable as a
+  default, lift it to 2 (will roughly match legacy compute on small
+  canvases and still beat it on large).
+- Legacy fallback (no-anchors PNGs) is untested for the new path —
+  none exist in the repo. The code is the same as before, just guarded.
+
+## Session state — 2026-05-04
 Tests: `node --test tests/` — 19 passing. Syntax check passes; dev server returns 200.
 
 Last session shipped 11 commits (`66e09ba..c06bcb0`). What landed:
