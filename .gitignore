@@ -1,0 +1,10 @@
+# Local Claude Code config — per-clone, not shared.
+.claude/
+
+# Junk drawer: superseded files, scratch HTML, pre-refactor JSX shards,
+# spare .pshift.png samples. Kept on disk for reference but outside the
+# ship surface. Git history retains the tracked ones.
+extra/
+
+# macOS Finder metadata.
+.DS_Store
