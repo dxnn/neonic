@@ -1754,7 +1754,8 @@ function renderPlaylist() {
         const t = Math.max(0, Math.min(1, 1 - x / cssW));
         const idx = Math.min(254, Math.max(0, Math.round(t * 254)));
         const built = window.Neonic.buildRamp(palStops);
-        palStops.push({ t, color: built[idx].slice() });
+        const o = idx * 3;
+        palStops.push({ t, color: [built[o], built[o+1], built[o+2]] });
         selectedStop = palStops.length - 1;
         rebuildRamp();
       }
