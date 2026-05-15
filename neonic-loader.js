@@ -8,18 +8,22 @@
 //
 // Or call NeonicLoader.mount(canvas) directly. Returns the CycleEngine.
 //
-// When the source PNG carries editable anchors in its metadata, the
-// loader re-bakes at the canvas's display resolution × devicePixelRatio
-// instead of using the export-time indices buffer. That means a small
-// canvas pays small per-frame compute, and the file doesn't have to ship
-// a giant indices blob just to be displayed at thumbnail size. Old
-// PNGs without anchors fall back to the embedded indices buffer.
+// The loader re-bakes from the anchors stored in the PNG's metadata
+// at the canvas's display resolution × devicePixelRatio × supersample.
+// A small CSS-shrunk canvas thus pays small per-frame compute. The
+// bake's long edge is capped at MAX_BAKE_EDGE so a huge canvas can't
+// blow up frame compute.
 //
-// data-supersample="2"  on the canvas requests extra oversampling
-//   (default 1 = matched-resolution bake). Higher = smoother strokes
-//   at the cost of more compute per frame.
+// data-supersample="N"  on the canvas overrides the supersample
+//   factor (default 2 = 4× pixel oversample over CSS at dpr=2).
+//   Drop to 1 if compute is more important than smoothness on a
+//   particular embed; raise above 2 to chase the legacy "bake big,
+//   downsample" look (subject to the MAX_BAKE_EDGE cap).
 
 (function (root) {
+  const DEFAULT_SUPERSAMPLE = 2;
+  const MAX_BAKE_EDGE = 1024;     // safety ceiling on bake's long side
+
   function anchorBBox(anchors) {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const a of anchors) {
@@ -29,18 +33,17 @@
     return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
   }
 
-  // Pick a bake scale that fills the canvas's pixel-resolution box
-  // (cssSize × devicePixelRatio × supersample) without overflowing
-  // either axis. Padding lives outside the anchor bbox in the bake, so
-  // we subtract it from the target box before dividing.
-  function chooseBakeScale(canvas, anchors, fallbackW, fallbackH, padding) {
-    const bbox = anchorBBox(anchors);
+  // Pick a bake scale that fills cssSize × dpr × supersample without
+  // overflowing either axis, then clamp so the bake's long edge stays
+  // ≤ MAX_BAKE_EDGE (defensive against very large canvases on retina,
+  // where the naive supersample target would balloon to 3M+ px/frame).
+  function chooseBakeScale(canvas, bbox, padding) {
     if (bbox.w <= 0 && bbox.h <= 0) return 1;
 
     const dpr = root.devicePixelRatio || 1;
-    const ss  = +canvas.dataset.supersample || 1;
-    const cssW = canvas.clientWidth  || canvas.width  || fallbackW || 320;
-    const cssH = canvas.clientHeight || canvas.height || fallbackH || 320;
+    const ss  = +canvas.dataset.supersample || DEFAULT_SUPERSAMPLE;
+    const cssW = canvas.clientWidth  || canvas.width  || 320;
+    const cssH = canvas.clientHeight || canvas.height || 320;
     const targetW = cssW * dpr * ss;
     const targetH = cssH * dpr * ss;
 
@@ -48,18 +51,35 @@
     const usableH = Math.max(8, targetH - padding * 2);
     const sW = bbox.w > 0 ? usableW / bbox.w : Infinity;
     const sH = bbox.h > 0 ? usableH / bbox.h : Infinity;
-    return Math.max(0.05, Math.min(sW, sH));
+    let scale = Math.min(sW, sH);
+
+    const longBboxEdge = Math.max(bbox.w, bbox.h);
+    const longBakeEdge = longBboxEdge * scale + padding * 2;
+    if (longBakeEdge > MAX_BAKE_EDGE) {
+      scale = (MAX_BAKE_EDGE - padding * 2) / longBboxEdge;
+    }
+    return Math.max(0.05, scale);
   }
 
-  function bakeForCanvas(canvas, metadata, fallbackW, fallbackH) {
+  function bakeForCanvas(canvas, metadata) {
     const padding = metadata.padding != null ? metadata.padding : 24;
     const half    = metadata.half || 'full';
-    const scale   = chooseBakeScale(canvas, metadata.anchors,
-                                    fallbackW, fallbackH, padding);
+    const bbox    = anchorBBox(metadata.anchors);
+    const scale   = chooseBakeScale(canvas, bbox, padding);
     return root.Neonic.bakeFromAnchors({
       anchors: metadata.anchors,
       scale, padding, half,
     });
+  }
+
+  // If the canvas hasn't been laid out yet, clientWidth/Height is 0
+  // and we'd fall back to the canvas's attribute size — for a fresh
+  // <canvas> that's 300×150, which is the wrong shape and the wrong
+  // size. One rAF tick is enough for the browser to assign the
+  // CSS-driven layout; we only wait if the layout really is zero.
+  function waitForLayout(canvas) {
+    if (canvas.clientWidth > 0 && canvas.clientHeight > 0) return Promise.resolve();
+    return new Promise((resolve) => requestAnimationFrame(() => resolve()));
   }
 
   async function mount(canvas, src) {
@@ -68,22 +88,13 @@
       if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
       return r.arrayBuffer();
     });
-    const { width, height, indices, metadata } =
-      root.NeonicPng.decode(new Uint8Array(buf));
+    const { metadata } = root.NeonicPng.decode(new Uint8Array(buf));
 
-    // Anchors carry the geometry; rebake at the actual display
-    // resolution so the engine paints only what the canvas shows. Fall
-    // back to the embedded indices buffer when anchors aren't present
-    // (legacy PNGs from before this loader version).
-    let baked;
-    if (metadata.anchors && metadata.anchors.length >= 2
-        && root.Neonic.bakeFromAnchors) {
-      baked = bakeForCanvas(canvas, metadata, width, height);
-    } else if (indices) {
-      baked = { width, height, indices };
-    } else {
-      throw new Error('NEONIC PNG has neither anchors nor indices');
+    if (!metadata.anchors || metadata.anchors.length < 2) {
+      throw new Error('NEONIC PNG is missing anchors');
     }
+    await waitForLayout(canvas);
+    const baked = bakeForCanvas(canvas, metadata);
 
     const eng = new root.Neonic.CycleEngine(canvas, baked);
     const palettes = metadata.palettes;

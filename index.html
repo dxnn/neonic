@@ -291,12 +291,6 @@
     <div class="out-host"><canvas id="out"></canvas></div>
     <div class="row">
       <button class="ghost" id="export">Export</button>
-      <select id="exportSize" title="Static preview image size in the exported PNG. Playback is re-baked at the consumer's display resolution and is independent of this setting.">
-        <option value="1">full</option>
-        <option value="0.5">half</option>
-        <option value="0.25">quarter</option>
-        <option value="0.125">eighth</option>
-      </select>
       <button class="ghost" id="record">Record</button>
       <span class="meta" id="bake-meta"></span>
     </div>
@@ -2140,14 +2134,11 @@ $('export').addEventListener('click', async (e) => {
   const origLabel = btn.textContent;
   btn.textContent = 'Rendering…';
   try {
-    const sizeMul = +$('exportSize').value || 1;
-    const exportScale = 1.6 * sizeMul;
-    // Bake at the chosen size purely to render the static preview image
-    // that lives inside the PNG. We do NOT embed this indices buffer in
-    // the metadata anymore — the playback engine re-bakes from anchors
-    // at the consumer's display resolution, so shipping a giant indices
-    // blob is pure overhead. sizeMul therefore only affects how big
-    // (and how chunky at small values) the embedded thumbnail is.
+    // Bake at half the historical 1.6 scale purely to render the
+    // static preview image that lives inside the PNG. Playback is
+    // independent of this — the engine re-bakes from anchors at the
+    // consumer's display resolution.
+    const exportScale = 0.8;
     const bake = window.Neonic.bakeFromStroke({
       stroke: samplePath(state.paths[0], 16),
       scale: exportScale, padding: 24, half: 'full',
@@ -2173,7 +2164,6 @@ $('export').addEventListener('click', async (e) => {
     offCtx.putImageData(im, 0, 0);
     const bytes = await window.NeonicPng.encode({
       canvas: off,
-      // indices: omitted — playback rebakes from anchors at display size.
       anchors: state.paths[0].anchors,
       palettes: playlist,
       activeIdx: 0,            // always boot the embed on palette[0]

@@ -98,44 +98,23 @@
     return out;
   }
 
-  // ─── base64 ───────────────────────────────────────────────────────────
-  function bytesToBase64(bytes) {
-    let s = '';
-    const chunk = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunk) {
-      s += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-    }
-    return btoa(s);
-  }
-  function base64ToBytes(b64) {
-    const bin = atob(b64);
-    const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-    return out;
-  }
-
   // ─── public encode / decode ───────────────────────────────────────────
   // encode(opts) → Promise<Uint8Array>
-  // opts: { canvas, indices?, anchors,
+  // opts: { canvas, anchors,
   //         palettes, activeIdx, playMode,
   //         strokeWidth, thinning, scale, padding, half }
   // `thinning` records the slider value at export time so import can
   // restore it; without that, anchor widths drift on re-load because
   // the formula reapplies at whatever the slider happens to be.
-  // `indices` is optional: when anchors are present the playback engine
-  // can re-bake at the display canvas's resolution, so embedding a
-  // width×height byte buffer is pure file-size overhead. Omit it (pass
-  // null/undefined) for size-optimised exports. The PNG's own RGBA
-  // image data still acts as a static preview.
   async function encode(opts) {
-    const { canvas, indices, anchors,
+    const { canvas, anchors,
             palettes, activeIdx, playMode,
             strokeWidth, thinning, scale, padding, half } = opts;
     const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
     if (!blob) throw new Error('canvas.toBlob returned null');
     const pngBytes = new Uint8Array(await blob.arrayBuffer());
     const meta = {
-      version: 1,
+      version: 2,
       width: canvas.width,
       height: canvas.height,
       anchors,
@@ -144,14 +123,15 @@
       playMode,
       strokeWidth, thinning, scale, padding, half,
     };
-    if (indices != null) meta.indices = bytesToBase64(indices);
     return injectIText(pngBytes, 'neonic', JSON.stringify(meta));
   }
 
-  // decode(uint8) → { width, height, indices, metadata }
-  // `indices` is null when the source PNG omitted the precomputed bake
-  // (size-optimised exports). Callers that need an indices buffer should
-  // re-bake from metadata.anchors at their target size.
+  // decode(uint8) → { width, height, metadata }
+  // Returns the preview-image dimensions and the editable metadata.
+  // The playback engine reconstructs the indices buffer from
+  // metadata.anchors at whatever resolution the consumer asks for.
+  // Pre-v2 PNGs that carried a precomputed `indices` field in their
+  // metadata are still accepted — the field is just ignored.
   function decode(pngBytes) {
     if (pngBytes[0] !== 0x89 || pngBytes[1] !== 0x50) throw new Error('Not a PNG');
     let pos = 8, meta = null;
@@ -180,14 +160,8 @@
       pos = dataEnd + 4;
     }
     if (!meta) throw new Error('No neonic metadata in PNG');
-    let indices = null;
-    if (meta.indices != null) {
-      indices = base64ToBytes(meta.indices);
-      if (indices.length !== meta.width * meta.height) {
-        throw new Error('indices length does not match width × height');
-      }
-    }
-    return { width: meta.width, height: meta.height, indices, metadata: meta };
+    if (meta.indices != null) delete meta.indices;
+    return { width: meta.width, height: meta.height, metadata: meta };
   }
 
   root.NeonicPng = { encode, decode };
