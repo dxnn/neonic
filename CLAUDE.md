@@ -56,41 +56,49 @@ Workflow:
 Tests: `node --test tests/*.test.js` — 22 passing. Syntax check passes.
 
 This session: resolution-adaptive playback + smaller PNGs
-(`b38f931..6ff76c5`, 2 commits).
+(`b38f931..d1021d9`, 5 commits).
 
 What landed:
 - `Neonic.bakeFromAnchors({ anchors, scale, padding, half })` and
   `Neonic.sampleAnchors(anchors, perSeg)` added to the runtime so any
   consumer can re-bake from anchor metadata without pulling in editor
   internals.
-- `NeonicLoader.mount` now rebakes from `metadata.anchors` at the
-  canvas's `clientWidth × devicePixelRatio × supersample` (default
-  supersample=1, override via `data-supersample` attr). Legacy PNGs
-  without anchors fall back to embedded indices.
-- `NeonicPng.encode` accepts `indices: null/undefined` and omits the
-  field. Decoder returns `indices: null` when absent.
-- `index.html` export stops embedding the indices buffer. The
-  exportSize dropdown now only affects the static preview image inside
-  the PNG (its title attribute spells that out).
-- `compare-playback.html` is a side-by-side visual QA tool that mounts
-  the same source PNG in three modes (legacy / opt ss=1 / opt ss=2) at
-  four canvas sizes, plus a file-size delta panel.
+- `NeonicLoader.mount` rebakes from `metadata.anchors` at
+  `clientWidth × devicePixelRatio × supersample` (default ss=2). One
+  rAF wait if `clientWidth` is 0 (otherwise we'd fall through to the
+  canvas's 300×150 attribute default). Bake's long edge capped at
+  `MAX_BAKE_EDGE = 1024` so a big canvas on retina doesn't melt CPUs.
+- `NeonicPng` format bumped to v2: no more `indices` field. Encoder
+  doesn't accept it, decoder doesn't return it. Old PNGs with
+  meta.indices still decode (the field is just ignored).
+- `index.html` exportSize dropdown removed. Preview image is always
+  baked at `scale=0.8` (= "half" of the historical 1.6); playback is
+  display-resolution-driven anyway.
+- `compare-tiny-canvas.html`: standalone QA page that mounts the same
+  PNG into canvases at 32 / 48 / 64 / 120 / 240 / 480 px CSS height
+  (mimicking the aisoup-style `height:32px; width:auto` pattern),
+  with three supersample columns: default(ss=2), ss=1 (compute-tight),
+  ss=4 (quality-max). Each cell reports bake dims + px/frame.
+- `compare-playback.html`: the legacy-vs-new comparison from earlier
+  in the session is now a no-op redirect to `compare-tiny-canvas.html`
+  since the legacy path no longer exists.
 
-Measured impact on the existing `logo.neonic.png`:
-- File: 326 KB → 33 KB (~90% smaller) with identical preview image,
-  ~98% smaller if the preview is shrunk too.
-- Per-frame compute (60px CSS canvas, dpr=1): 225k px → 3.8k px (~58×
-  less work). Scales with the canvas, not the export.
+Measured impact on `logo.neonic.png`:
+- File size: 326 KB → ~33 KB once re-exported (~90% smaller; the
+  committed `logo.neonic.png` is still the pre-eradication 326 KB
+  file, will shrink on next export).
+- Per-frame compute (32px-tall canvas, dpr=2, ss=2 default):
+  legacy ≈173k px → new ≈31k px (~5–6× less). Big-canvas worst case
+  is now bounded by MAX_BAKE_EDGE rather than display × dpr × ss.
 
 Open / future work:
-- Default `supersample` is 1. On dpr=1 displays, very small canvases
-  (≤80px) look slightly chunky; bumping to `data-supersample="2"`
-  fixes it at the cost of 4× the pixel work. On retina this is moot.
-  If the comparison tool shows the chunkiness is unacceptable as a
-  default, lift it to 2 (will roughly match legacy compute on small
-  canvases and still beat it on large).
-- Legacy fallback (no-anchors PNGs) is untested for the new path —
-  none exist in the repo. The code is the same as before, just guarded.
+- Adaptive supersample (more ss for smaller canvases, less for big)
+  — user wanted to defer until baseline behaviour settles.
+- Re-export of `logo.neonic.png` to shrink the committed file —
+  needs a manual roundtrip through the editor's import/export buttons.
+- Quality at very small canvases on dpr=1 is necessarily limited.
+  Embeds targeting non-retina screens at <50px height should bump
+  to `data-supersample="4"` to keep strokes smooth.
 
 ## Session state — 2026-05-04
 Tests: `node --test tests/` — 19 passing. Syntax check passes; dev server returns 200.
