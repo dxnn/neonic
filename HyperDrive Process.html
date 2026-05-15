@@ -441,7 +441,7 @@ IEND           <span style="color:var(--muted)">— end of stream</span></pre>
 
   <p style="margin-top:32px">Now go run it on something:</p>
   <p>
-    <a href="svg-to-ps.html" style="display:inline-block;padding:10px 16px;background:var(--ink);color:#fff;border-radius:6px;text-decoration:none;font:13px ui-sans-serif,system-ui,sans-serif;font-weight:500">Open the drawing tool →</a>
+    <a href="neonic.html" style="display:inline-block;padding:10px 16px;background:var(--ink);color:#fff;border-radius:6px;text-decoration:none;font:13px ui-sans-serif,system-ui,sans-serif;font-weight:500">Open the drawing tool →</a>
     &nbsp;
     <a href="load-svg.html" style="display:inline-block;padding:10px 16px;background:transparent;color:var(--ink);border:.5px solid var(--rule);border-radius:6px;text-decoration:none;font:13px ui-sans-serif,system-ui,sans-serif;font-weight:500">Or paste a path →</a>
   </p>
@@ -1043,7 +1043,7 @@ const DEMO_D = window.DEMO_D || "M40,140 C 100,20 200,260 280,120 S 460,20 560,1
       meta.textContent = `${(bytes.length / 1024).toFixed(1)} KB on disk`;
     } catch (e) {
       out.classList.add('err');
-      out.textContent = `Could not parse: ${e.message}. Drop a logo.pshift.png next to this file (export one from svg-to-ps.html).`;
+      out.textContent = `Could not parse: ${e.message}. Drop a logo.pshift.png next to this file (export one from neonic.html).`;
     }
   });
 })();

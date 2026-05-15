@@ -19,7 +19,7 @@ Workflow:
 
 ## Project shape
 - Static HTML/JS app, no build step.
-- Serve with `python3 -m http.server 8000`; entry point is `svg-to-ps.html`.
+- Serve with `python3 -m http.server 8000`; entry point is `neonic.html`.
 - Syntax sanity check for the inline module: `node /tmp/claude/check.js`
   (extracts the `<script type="module">` body and `new Function`-checks it).
 - Unit tests (pure helpers + CycleEngine palette logic):
