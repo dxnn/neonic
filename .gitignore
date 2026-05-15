@@ -9,6 +9,9 @@ extra/
 # macOS Finder metadata.
 .DS_Store
 
+# Playwright MCP session artifacts.
+.playwright-mcp/
+
 # Local mirror of the article's deploy site (inwordsandpictures.com/neonic).
 # Carries copies of neonic-playback.js and logo.neonic.png so the article's
 # `../` paths resolve when previewing nwp/neonic/neonic_article.html locally.
