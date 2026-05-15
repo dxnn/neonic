@@ -8,3 +8,8 @@ extra/
 
 # macOS Finder metadata.
 .DS_Store
+
+# Local mirror of the article's deploy site (inwordsandpictures.com/neonic).
+# Carries copies of neonic-playback.js and logo.pshift.png so the article's
+# `../` paths resolve when previewing nwp/neonic/neonic_article.html locally.
+nwp/
