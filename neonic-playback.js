@@ -273,6 +273,45 @@
     return { width: w, height: h, indices };
   }
 
+  // ─── bake from editor anchors ───────────────────────────────────────────
+  // anchors: [{ x, y, h1x, h1y, h2x, h2y, width, pressure }, ...]
+  // Samples each cubic Bezier segment at `perSeg` points (matching the
+  // editor's samplePath), then delegates to bakeFromStroke. Lets a consumer
+  // re-bake at any scale from the anchors stored in NEONIC metadata, so the
+  // playback engine can size itself to the display canvas instead of being
+  // pinned to whatever resolution the export happened to be baked at.
+  function bezierPointAnchor(p, q, t) {
+    const u = 1 - t;
+    return {
+      x: u*u*u*p.x + 3*u*u*t*p.h2x + 3*u*t*t*q.h1x + t*t*t*q.x,
+      y: u*u*u*p.y + 3*u*u*t*p.h2y + 3*u*t*t*q.h1y + t*t*t*q.y,
+    };
+  }
+  function sampleAnchors(anchors, perSeg) {
+    if (!anchors || anchors.length < 2) return [];
+    if (perSeg == null) perSeg = 16;
+    const widthOf = (a) => (a.width == null ? 22 : a.width);
+    const out = [{ x: anchors[0].x, y: anchors[0].y, width: widthOf(anchors[0]) }];
+    for (let i = 1; i < anchors.length; i++) {
+      const p = anchors[i-1], q = anchors[i];
+      const pw = widthOf(p), qw = widthOf(q);
+      for (let k = 1; k <= perSeg; k++) {
+        const t = k / perSeg;
+        const pt = bezierPointAnchor(p, q, t);
+        pt.width = pw + (qw - pw) * t;
+        out.push(pt);
+      }
+    }
+    return out;
+  }
+  function bakeFromAnchors(opts) {
+    const { anchors, perSeg, scale, padding, half } = opts || {};
+    return bakeFromStroke({
+      stroke: sampleAnchors(anchors, perSeg),
+      scale, padding, half,
+    });
+  }
+
   // ─── runtime ────────────────────────────────────────────────────────────
   // Forward-feed model: every palette is "fed in" at palette[1], with a
   // specific color flowing outward to palette[2], [3], ... over time.
@@ -392,7 +431,7 @@
     this._paint();
   };
 
-  root.Neonic = { bakeFromD, bakeFromStroke, CycleEngine, PALETTES, buildRamp, _test: { rgba, hex } };
+  root.Neonic = { bakeFromD, bakeFromStroke, bakeFromAnchors, sampleAnchors, CycleEngine, PALETTES, buildRamp, _test: { rgba, hex } };
 })(window);
 
 // neonic-png.js
@@ -513,12 +552,17 @@
 
   // ─── public encode / decode ───────────────────────────────────────────
   // encode(opts) → Promise<Uint8Array>
-  // opts: { canvas, indices, anchors,
+  // opts: { canvas, indices?, anchors,
   //         palettes, activeIdx, playMode,
   //         strokeWidth, thinning, scale, padding, half }
   // `thinning` records the slider value at export time so import can
   // restore it; without that, anchor widths drift on re-load because
   // the formula reapplies at whatever the slider happens to be.
+  // `indices` is optional: when anchors are present the playback engine
+  // can re-bake at the display canvas's resolution, so embedding a
+  // width×height byte buffer is pure file-size overhead. Omit it (pass
+  // null/undefined) for size-optimised exports. The PNG's own RGBA
+  // image data still acts as a static preview.
   async function encode(opts) {
     const { canvas, indices, anchors,
             palettes, activeIdx, playMode,
@@ -530,17 +574,20 @@
       version: 1,
       width: canvas.width,
       height: canvas.height,
-      indices: bytesToBase64(indices),
       anchors,
       palettes,
       activeIdx,
       playMode,
       strokeWidth, thinning, scale, padding, half,
     };
+    if (indices != null) meta.indices = bytesToBase64(indices);
     return injectIText(pngBytes, 'neonic', JSON.stringify(meta));
   }
 
   // decode(uint8) → { width, height, indices, metadata }
+  // `indices` is null when the source PNG omitted the precomputed bake
+  // (size-optimised exports). Callers that need an indices buffer should
+  // re-bake from metadata.anchors at their target size.
   function decode(pngBytes) {
     if (pngBytes[0] !== 0x89 || pngBytes[1] !== 0x50) throw new Error('Not a PNG');
     let pos = 8, meta = null;
@@ -569,9 +616,12 @@
       pos = dataEnd + 4;
     }
     if (!meta) throw new Error('No neonic metadata in PNG');
-    const indices = base64ToBytes(meta.indices);
-    if (indices.length !== meta.width * meta.height) {
-      throw new Error('indices length does not match width × height');
+    let indices = null;
+    if (meta.indices != null) {
+      indices = base64ToBytes(meta.indices);
+      if (indices.length !== meta.width * meta.height) {
+        throw new Error('indices length does not match width × height');
+      }
     }
     return { width: meta.width, height: meta.height, indices, metadata: meta };
   }
@@ -588,8 +638,61 @@
 //   <script>NeonicLoader.mountAll('.logo-cycle');</script>
 //
 // Or call NeonicLoader.mount(canvas) directly. Returns the CycleEngine.
+//
+// When the source PNG carries editable anchors in its metadata, the
+// loader re-bakes at the canvas's display resolution × devicePixelRatio
+// instead of using the export-time indices buffer. That means a small
+// canvas pays small per-frame compute, and the file doesn't have to ship
+// a giant indices blob just to be displayed at thumbnail size. Old
+// PNGs without anchors fall back to the embedded indices buffer.
+//
+// data-supersample="2"  on the canvas requests extra oversampling
+//   (default 1 = matched-resolution bake). Higher = smoother strokes
+//   at the cost of more compute per frame.
 
 (function (root) {
+  function anchorBBox(anchors) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const a of anchors) {
+      if (a.x < minX) minX = a.x; if (a.x > maxX) maxX = a.x;
+      if (a.y < minY) minY = a.y; if (a.y > maxY) maxY = a.y;
+    }
+    return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
+  }
+
+  // Pick a bake scale that fills the canvas's pixel-resolution box
+  // (cssSize × devicePixelRatio × supersample) without overflowing
+  // either axis. Padding lives outside the anchor bbox in the bake, so
+  // we subtract it from the target box before dividing.
+  function chooseBakeScale(canvas, anchors, fallbackW, fallbackH, padding) {
+    const bbox = anchorBBox(anchors);
+    if (bbox.w <= 0 && bbox.h <= 0) return 1;
+
+    const dpr = root.devicePixelRatio || 1;
+    const ss  = +canvas.dataset.supersample || 1;
+    const cssW = canvas.clientWidth  || canvas.width  || fallbackW || 320;
+    const cssH = canvas.clientHeight || canvas.height || fallbackH || 320;
+    const targetW = cssW * dpr * ss;
+    const targetH = cssH * dpr * ss;
+
+    const usableW = Math.max(8, targetW - padding * 2);
+    const usableH = Math.max(8, targetH - padding * 2);
+    const sW = bbox.w > 0 ? usableW / bbox.w : Infinity;
+    const sH = bbox.h > 0 ? usableH / bbox.h : Infinity;
+    return Math.max(0.05, Math.min(sW, sH));
+  }
+
+  function bakeForCanvas(canvas, metadata, fallbackW, fallbackH) {
+    const padding = metadata.padding != null ? metadata.padding : 24;
+    const half    = metadata.half || 'full';
+    const scale   = chooseBakeScale(canvas, metadata.anchors,
+                                    fallbackW, fallbackH, padding);
+    return root.Neonic.bakeFromAnchors({
+      anchors: metadata.anchors,
+      scale, padding, half,
+    });
+  }
+
   async function mount(canvas, src) {
     src = src || canvas.dataset.src;
     const buf = await fetch(src).then((r) => {
@@ -597,8 +700,23 @@
       return r.arrayBuffer();
     });
     const { width, height, indices, metadata } =
-      window.NeonicPng.decode(new Uint8Array(buf));
-    const eng = new window.Neonic.CycleEngine(canvas, { width, height, indices });
+      root.NeonicPng.decode(new Uint8Array(buf));
+
+    // Anchors carry the geometry; rebake at the actual display
+    // resolution so the engine paints only what the canvas shows. Fall
+    // back to the embedded indices buffer when anchors aren't present
+    // (legacy PNGs from before this loader version).
+    let baked;
+    if (metadata.anchors && metadata.anchors.length >= 2
+        && root.Neonic.bakeFromAnchors) {
+      baked = bakeForCanvas(canvas, metadata, width, height);
+    } else if (indices) {
+      baked = { width, height, indices };
+    } else {
+      throw new Error('NEONIC PNG has neither anchors nor indices');
+    }
+
+    const eng = new root.Neonic.CycleEngine(canvas, baked);
     const palettes = metadata.palettes;
     const mode = metadata.playMode || 'sequential';
     let curIdx = (typeof metadata.activeIdx === 'number'
@@ -609,7 +727,7 @@
 
     function applyPalette(i) {
       const p = palettes[i];
-      eng.setPalette(window.Neonic.buildRamp(p.stops));
+      eng.setPalette(root.Neonic.buildRamp(p.stops));
       eng.setSpeed(Math.abs(p.speed));
     }
     applyPalette(curIdx);
@@ -639,7 +757,7 @@
                  while (next === curIdx); }
           pendingNext = next;
           eng.transitionTo(
-            window.Neonic.buildRamp(palettes[next].stops),
+            root.Neonic.buildRamp(palettes[next].stops),
             eng.baseStartOff + target * 255);
         }
       }

@@ -267,6 +267,45 @@
     return { width: w, height: h, indices };
   }
 
+  // ─── bake from editor anchors ───────────────────────────────────────────
+  // anchors: [{ x, y, h1x, h1y, h2x, h2y, width, pressure }, ...]
+  // Samples each cubic Bezier segment at `perSeg` points (matching the
+  // editor's samplePath), then delegates to bakeFromStroke. Lets a consumer
+  // re-bake at any scale from the anchors stored in NEONIC metadata, so the
+  // playback engine can size itself to the display canvas instead of being
+  // pinned to whatever resolution the export happened to be baked at.
+  function bezierPointAnchor(p, q, t) {
+    const u = 1 - t;
+    return {
+      x: u*u*u*p.x + 3*u*u*t*p.h2x + 3*u*t*t*q.h1x + t*t*t*q.x,
+      y: u*u*u*p.y + 3*u*u*t*p.h2y + 3*u*t*t*q.h1y + t*t*t*q.y,
+    };
+  }
+  function sampleAnchors(anchors, perSeg) {
+    if (!anchors || anchors.length < 2) return [];
+    if (perSeg == null) perSeg = 16;
+    const widthOf = (a) => (a.width == null ? 22 : a.width);
+    const out = [{ x: anchors[0].x, y: anchors[0].y, width: widthOf(anchors[0]) }];
+    for (let i = 1; i < anchors.length; i++) {
+      const p = anchors[i-1], q = anchors[i];
+      const pw = widthOf(p), qw = widthOf(q);
+      for (let k = 1; k <= perSeg; k++) {
+        const t = k / perSeg;
+        const pt = bezierPointAnchor(p, q, t);
+        pt.width = pw + (qw - pw) * t;
+        out.push(pt);
+      }
+    }
+    return out;
+  }
+  function bakeFromAnchors(opts) {
+    const { anchors, perSeg, scale, padding, half } = opts || {};
+    return bakeFromStroke({
+      stroke: sampleAnchors(anchors, perSeg),
+      scale, padding, half,
+    });
+  }
+
   // ─── runtime ────────────────────────────────────────────────────────────
   // Forward-feed model: every palette is "fed in" at palette[1], with a
   // specific color flowing outward to palette[2], [3], ... over time.
@@ -386,5 +425,5 @@
     this._paint();
   };
 
-  root.Neonic = { bakeFromD, bakeFromStroke, CycleEngine, PALETTES, buildRamp, _test: { rgba, hex } };
+  root.Neonic = { bakeFromD, bakeFromStroke, bakeFromAnchors, sampleAnchors, CycleEngine, PALETTES, buildRamp, _test: { rgba, hex } };
 })(window);

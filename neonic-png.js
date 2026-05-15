@@ -116,12 +116,17 @@
 
   // ─── public encode / decode ───────────────────────────────────────────
   // encode(opts) → Promise<Uint8Array>
-  // opts: { canvas, indices, anchors,
+  // opts: { canvas, indices?, anchors,
   //         palettes, activeIdx, playMode,
   //         strokeWidth, thinning, scale, padding, half }
   // `thinning` records the slider value at export time so import can
   // restore it; without that, anchor widths drift on re-load because
   // the formula reapplies at whatever the slider happens to be.
+  // `indices` is optional: when anchors are present the playback engine
+  // can re-bake at the display canvas's resolution, so embedding a
+  // width×height byte buffer is pure file-size overhead. Omit it (pass
+  // null/undefined) for size-optimised exports. The PNG's own RGBA
+  // image data still acts as a static preview.
   async function encode(opts) {
     const { canvas, indices, anchors,
             palettes, activeIdx, playMode,
@@ -133,17 +138,20 @@
       version: 1,
       width: canvas.width,
       height: canvas.height,
-      indices: bytesToBase64(indices),
       anchors,
       palettes,
       activeIdx,
       playMode,
       strokeWidth, thinning, scale, padding, half,
     };
+    if (indices != null) meta.indices = bytesToBase64(indices);
     return injectIText(pngBytes, 'neonic', JSON.stringify(meta));
   }
 
   // decode(uint8) → { width, height, indices, metadata }
+  // `indices` is null when the source PNG omitted the precomputed bake
+  // (size-optimised exports). Callers that need an indices buffer should
+  // re-bake from metadata.anchors at their target size.
   function decode(pngBytes) {
     if (pngBytes[0] !== 0x89 || pngBytes[1] !== 0x50) throw new Error('Not a PNG');
     let pos = 8, meta = null;
@@ -172,9 +180,12 @@
       pos = dataEnd + 4;
     }
     if (!meta) throw new Error('No neonic metadata in PNG');
-    const indices = base64ToBytes(meta.indices);
-    if (indices.length !== meta.width * meta.height) {
-      throw new Error('indices length does not match width × height');
+    let indices = null;
+    if (meta.indices != null) {
+      indices = base64ToBytes(meta.indices);
+      if (indices.length !== meta.width * meta.height) {
+        throw new Error('indices length does not match width × height');
+      }
     }
     return { width: meta.width, height: meta.height, indices, metadata: meta };
   }
