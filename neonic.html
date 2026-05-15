@@ -257,6 +257,8 @@
 <div class="wrap">
 
 <header>
+  <canvas class="logo-cycle" data-src="logo.pshift.png"
+          style="display:block;height:36px;width:auto;margin-bottom:14px"></canvas>
   <div class="meta">SVG path → palette-cycle · drawing tool</div>
   <h1>Sketch a stroke. Tweak the curve. Watch the palette cycle.</h1>
   <p class="deck">Draw on the left, refine the path's anchors and tangents below it,
@@ -344,6 +346,8 @@
 
 <script src="logo-engine-standalone.js"></script>
 <script src="pshift-png.js"></script>
+<script src="pshift-loader.js"></script>
+<script>PshiftLoader.mountAll('.logo-cycle');</script>
 <script type="module">
 import { getStroke, getStrokePoints } from './perfect-freehand.mjs';
 
