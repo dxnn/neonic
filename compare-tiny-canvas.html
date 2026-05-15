@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Tiny-canvas regression check</title>
+  <style>
+    body { margin: 0; padding: 24px; font: 13px ui-sans-serif, system-ui, sans-serif;
+           background: #14141a; color: #e8e8ee; }
+    h1 { font-weight: 600; font-size: 18px; margin: 0 0 4px; }
+    .lead { color: #9fa1ad; margin: 0 0 24px; max-width: 60ch; }
+    table { border-collapse: collapse; }
+    th, td { padding: 14px 18px; text-align: left; vertical-align: top; }
+    th { color: #b8bac6; font-weight: 600; font-size: 12px;
+         text-transform: uppercase; letter-spacing: 0.06em; }
+    tr + tr td { border-top: 1px solid #2a2c36; }
+    .demo { display: inline-flex; gap: 14px; align-items: center;
+            padding: 6px 10px; background: #1c1d26; border-radius: 4px; }
+    .info { color: #9fa1ad; font-size: 11px; font-family: ui-monospace, monospace;
+            margin-top: 6px; }
+    /* Mimic the aisoup topbar layout: canvas inside a link with
+       height fixed, width auto. */
+    .demo canvas { display: block; width: auto; vertical-align: middle; }
+    .h32  canvas { height:  32px; }
+    .h48  canvas { height:  48px; }
+    .h64  canvas { height:  64px; }
+    .h120 canvas { height: 120px; }
+    .h240 canvas { height: 240px; }
+    .h480 canvas { height: 480px; }
+  </style>
+</head>
+<body>
+  <h1>Tiny-canvas regression check</h1>
+  <p class="lead">
+    Mimics the <code>height: 32px; width: auto</code> pattern used on
+    aisoup / neonic landing pages. Each row mounts the same PNG into
+    a canvas of the given CSS height; the bake size and per-frame
+    compute should adapt to the display, oversample enough to look
+    smooth, and not balloon at larger sizes (capped at 1024 px/edge).
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>CSS height</th>
+        <th>Default (ss=2)</th>
+        <th>ss=1 (compute-tight)</th>
+        <th>ss=4 (quality-max)</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <script src="neonic-playback.js"></script>
+  <script>
+    const HEIGHTS = [32, 48, 64, 120, 240, 480];
+
+    function cellFor(label, h, ssAttr) {
+      const wrap = document.createElement('div');
+      wrap.className = `h${h} demo`;
+      const c = document.createElement('canvas');
+      c.dataset.src = 'logo.neonic.png';
+      if (ssAttr != null) c.dataset.supersample = String(ssAttr);
+      wrap.appendChild(c);
+      const info = document.createElement('div');
+      info.className = 'info';
+      info.textContent = 'mounting…';
+      const cell = document.createElement('td');
+      cell.appendChild(wrap);
+      cell.appendChild(info);
+      return { cell, canvas: c, info, label };
+    }
+
+    const tbody = document.getElementById('rows');
+    const slots = [];
+    for (const h of HEIGHTS) {
+      const tr = document.createElement('tr');
+      const hd = document.createElement('td');
+      hd.textContent = h + 'px';
+      tr.appendChild(hd);
+      const a = cellFor('default', h);
+      const b = cellFor('ss=1', h, 1);
+      const c = cellFor('ss=4', h, 4);
+      tr.appendChild(a.cell); tr.appendChild(b.cell); tr.appendChild(c.cell);
+      tbody.appendChild(tr);
+      slots.push(a, b, c);
+    }
+
+    // Mount all, then write per-cell info once each engine reports.
+    Promise.all(slots.map(async (s) => {
+      const eng = await window.NeonicLoader.mount(s.canvas);
+      const baked = eng.baked;
+      s.info.innerHTML =
+        `<b>${s.label}</b> · bake ${baked.width}×${baked.height} ` +
+        `(${(baked.width*baked.height).toLocaleString()} px/frame) ` +
+        `· css ${s.canvas.clientWidth}×${s.canvas.clientHeight} ` +
+        `· dpr ${window.devicePixelRatio || 1}`;
+      return eng;
+    }));
+  </script>
+</body>
+</html>
