@@ -59,7 +59,6 @@ bake and the full palette playlist.
 | `perfect-freehand.mjs` | Vendored stroke renderer (Steve Ruiz, MIT) |
 | `logo.pshift.png` | Sample logo |
 | `logo-embed.html` | Embed demo: navbar mark + size comparisons |
-| `neonic_article.html` | Nine-stage walkthrough of the engine (deployed separately) |
 | `tests/engine.test.js` | Node test suite — 22 tests, no browser needed |
 | `extra/` | Junk drawer — superseded files, spare PNG samples; gitignored |
 
@@ -82,11 +81,12 @@ browser smoke-test.
 
 ## How it works
 
-See `neonic_article.html` for the nine-stage walkthrough: parsing the
-path, sampling colored segments, masking and combining into an index
-buffer, building the palette LUT, the render loop, custom palettes
-from stops, the forward-feed transition, and the iTXt metadata format.
-The article is the source of truth that gets deployed to its own home.
+The nine-stage walkthrough lives at
+[inwordsandpictures.com/neonic](https://inwordsandpictures.com/neonic):
+parsing the path, sampling along it, the index-canvas trick, masking
+and combining into a `Uint8Array`, building the palette LUT, the
+render loop, custom palettes from stops, the forward-feed transition,
+and the iTXt metadata format.
 
 ## License
 
