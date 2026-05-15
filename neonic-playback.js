@@ -613,20 +613,26 @@
 //
 // Or call NeonicLoader.mount(canvas) directly. Returns the CycleEngine.
 //
-// The loader re-bakes from the anchors stored in the PNG's metadata
-// at the canvas's display resolution × devicePixelRatio × supersample.
-// A small CSS-shrunk canvas thus pays small per-frame compute. The
-// bake's long edge is capped at MAX_BAKE_EDGE so a huge canvas can't
-// blow up frame compute.
+// The loader re-bakes from the anchors stored in the PNG's metadata.
+// The bake's indices buffer is binary (no partial alpha at stroke
+// edges) so smooth-looking strokes at display time require ~8-16
+// bake pixels per display pixel for the browser's GPU sampler to
+// anti-alias against. To guarantee that, the bake's long edge is
+// floored at MIN_BAKE_EDGE — even a 32-px CSS canvas gets a ~480-px
+// backing store, so its visual quality matches the historical
+// "always bake at scale 1.6, let the browser downsample" approach.
+// For canvases bigger than the floor the bake follows display size
+// (× devicePixelRatio × supersample) so they aren't a blurry
+// upscale. MAX_BAKE_EDGE caps the long edge so a huge canvas can't
+// runaway-grow per-frame compute.
 //
-// data-supersample="N"  on the canvas overrides the supersample
-//   factor (default 2 = 4× pixel oversample over CSS at dpr=2).
-//   Drop to 1 if compute is more important than smoothness on a
-//   particular embed; raise above 2 to chase the legacy "bake big,
-//   downsample" look (subject to the MAX_BAKE_EDGE cap).
+// data-supersample="N"  scales BOTH the floor and the dynamic
+//   target. Default 1 gives legacy quality. Raise to 2 to chase
+//   extra smoothness; drop below 1 to trade quality for compute.
 
 (function (root) {
-  const DEFAULT_SUPERSAMPLE = 2;
+  const DEFAULT_SUPERSAMPLE = 1;
+  const MIN_BAKE_EDGE = 480;      // legacy-comparable quality floor
   const MAX_BAKE_EDGE = 1024;     // safety ceiling on bake's long side
 
   function anchorBBox(anchors) {
@@ -638,31 +644,24 @@
     return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
   }
 
-  // Pick a bake scale that fills cssSize × dpr × supersample without
-  // overflowing either axis, then clamp so the bake's long edge stays
-  // ≤ MAX_BAKE_EDGE (defensive against very large canvases on retina,
-  // where the naive supersample target would balloon to 3M+ px/frame).
+  // Pick a bake scale whose long edge is:
+  //   max(MIN_BAKE_EDGE × ss, displayLong × dpr × ss),
+  // then clamped to MAX_BAKE_EDGE. ss multiplies both terms so it's
+  // a single "more or less quality" knob across all canvas sizes.
   function chooseBakeScale(canvas, bbox, padding) {
-    if (bbox.w <= 0 && bbox.h <= 0) return 1;
+    const longBbox = Math.max(bbox.w, bbox.h);
+    if (longBbox <= 0) return 1;
 
     const dpr = root.devicePixelRatio || 1;
     const ss  = +canvas.dataset.supersample || DEFAULT_SUPERSAMPLE;
     const cssW = canvas.clientWidth  || canvas.width  || 320;
     const cssH = canvas.clientHeight || canvas.height || 320;
-    const targetW = cssW * dpr * ss;
-    const targetH = cssH * dpr * ss;
+    const cssLong = Math.max(cssW, cssH);
 
-    const usableW = Math.max(8, targetW - padding * 2);
-    const usableH = Math.max(8, targetH - padding * 2);
-    const sW = bbox.w > 0 ? usableW / bbox.w : Infinity;
-    const sH = bbox.h > 0 ? usableH / bbox.h : Infinity;
-    let scale = Math.min(sW, sH);
+    let targetLong = ss * Math.max(MIN_BAKE_EDGE, cssLong * dpr);
+    if (targetLong > MAX_BAKE_EDGE) targetLong = MAX_BAKE_EDGE;
 
-    const longBboxEdge = Math.max(bbox.w, bbox.h);
-    const longBakeEdge = longBboxEdge * scale + padding * 2;
-    if (longBakeEdge > MAX_BAKE_EDGE) {
-      scale = (MAX_BAKE_EDGE - padding * 2) / longBboxEdge;
-    }
+    const scale = (targetLong - padding * 2) / longBbox;
     return Math.max(0.05, scale);
   }
 

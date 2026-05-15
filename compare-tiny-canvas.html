@@ -43,9 +43,9 @@
     <thead>
       <tr>
         <th>CSS height</th>
-        <th>Default (ss=2)</th>
-        <th>ss=1 (compute-tight)</th>
-        <th>ss=4 (quality-max)</th>
+        <th>Default (ss=1)</th>
+        <th>ss=2 (smoother)</th>
+        <th>ss=0.5 (compute-tight)</th>
       </tr>
     </thead>
     <tbody id="rows"></tbody>
@@ -79,8 +79,8 @@
       hd.textContent = h + 'px';
       tr.appendChild(hd);
       const a = cellFor('default', h);
-      const b = cellFor('ss=1', h, 1);
-      const c = cellFor('ss=4', h, 4);
+      const b = cellFor('ss=2', h, 2);
+      const c = cellFor('ss=0.5', h, 0.5);
       tr.appendChild(a.cell); tr.appendChild(b.cell); tr.appendChild(c.cell);
       tbody.appendChild(tr);
       slots.push(a, b, c);
