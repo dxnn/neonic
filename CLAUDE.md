@@ -22,8 +22,10 @@ Workflow:
 - Serve with `python3 -m http.server 8000`; entry point is `svg-to-ps.html`.
 - Syntax sanity check for the inline module: `node /tmp/claude/check.js`
   (extracts the `<script type="module">` body and `new Function`-checks it).
-- Unit tests (pure helpers + CycleEngine palette logic): `node --test tests/`
-  Runs without a browser via Node's built-in test runner (node:test). 22 tests.
+- Unit tests (pure helpers + CycleEngine palette logic):
+  `node --test 'tests/*.test.js'`. Runs without a browser via Node's
+  built-in test runner (node:test). 22 tests. (Node 25 dropped the
+  implicit directory-discovery form, so pass the glob explicitly.)
 - Browser smoke-test the actual UI changes — canvas/DOM code can't be covered
   by the Node tests.
 
