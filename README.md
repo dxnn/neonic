@@ -81,7 +81,7 @@ browser smoke-test.
 
 ## How it works
 
-The nine-stage walkthrough lives at
+The eleven-stage walkthrough lives at
 [inwordsandpictures.com/neonic](https://inwordsandpictures.com/neonic):
 parsing the path, sampling along it, the index-canvas trick, masking
 and combining into a `Uint8Array`, building the palette LUT, the

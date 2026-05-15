@@ -1,3 +1,6 @@
+# deploy
+rsyncer
+
 # Local Claude Code config — per-clone, not shared.
 .claude/
 
