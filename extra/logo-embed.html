@@ -50,7 +50,7 @@
 <body>
 
 <header class="navbar">
-  <canvas class="logo-cycle" data-src="logo.neonic.png"></canvas>
+  <canvas class="logo-cycle" data-src="../logo.neonic.png"></canvas>
   <nav>
     <a href="#">Docs</a>
     <a href="#">Pricing</a>
@@ -72,30 +72,26 @@
   <div class="sizes">
     <div class="row s-24">
       <span class="label">24px</span>
-      <div class="swatch"><canvas class="logo-cycle" data-src="logo.neonic.png"></canvas></div>
+      <div class="swatch"><canvas class="logo-cycle" data-src="../logo.neonic.png"></canvas></div>
     </div>
     <div class="row s-48">
       <span class="label">48px</span>
-      <div class="swatch"><canvas class="logo-cycle" data-src="logo.neonic.png"></canvas></div>
+      <div class="swatch"><canvas class="logo-cycle" data-src="../logo.neonic.png"></canvas></div>
     </div>
     <div class="row s-96">
       <span class="label">96px</span>
-      <div class="swatch"><canvas class="logo-cycle" data-src="logo.neonic.png"></canvas></div>
+      <div class="swatch"><canvas class="logo-cycle" data-src="../logo.neonic.png"></canvas></div>
     </div>
   </div>
 
   <p style="margin-top: 40px">The whole embed is this:</p>
 <pre>&lt;canvas class="logo-cycle" data-src="logo.neonic.png"&gt;&lt;/canvas&gt;
 
-&lt;script src="logo-engine-standalone.js"&gt;&lt;/script&gt;
-&lt;script src="neonic-png.js"&gt;&lt;/script&gt;
-&lt;script src="neonic-loader.js"&gt;&lt;/script&gt;
+&lt;script src="neonic-playback.js"&gt;&lt;/script&gt;
 &lt;script&gt;NeonicLoader.mountAll('.logo-cycle');&lt;/script&gt;</pre>
 </main>
 
-<script src="logo-engine-standalone.js"></script>
-<script src="neonic-png.js"></script>
-<script src="neonic-loader.js"></script>
+<script src="../neonic-playback.js"></script>
 <script>
 NeonicLoader.mountAll('.logo-cycle').catch((err) => {
   const canvases = document.querySelectorAll('.logo-cycle');

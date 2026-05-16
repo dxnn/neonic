@@ -51,7 +51,7 @@
     <tbody id="rows"></tbody>
   </table>
 
-  <script src="neonic-playback.js"></script>
+  <script src="../neonic-playback.js"></script>
   <script>
     const HEIGHTS = [32, 48, 64, 120, 240, 480];
 
@@ -59,7 +59,7 @@
       const wrap = document.createElement('div');
       wrap.className = `h${h} demo`;
       const c = document.createElement('canvas');
-      c.dataset.src = 'logo.neonic.png';
+      c.dataset.src = '../logo.neonic.png';
       if (ssAttr != null) c.dataset.supersample = String(ssAttr);
       wrap.appendChild(c);
       const info = document.createElement('div');
