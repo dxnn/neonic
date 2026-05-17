@@ -93,11 +93,12 @@
   }
   .out-host {
     display: grid; place-items: center;
-    min-height: 320px; padding: 4px;
+    height: 320px; padding: 4px;
     border-radius: 6px; background: #050507;
   }
   canvas#out {
     display: block; max-width: 100%; max-height: 100%;
+    min-width: 0; min-height: 0;
     height: auto; image-rendering: pixelated;
     filter: drop-shadow(0 8px 22px rgba(0,0,0,.5));
   }
@@ -1141,13 +1142,31 @@ function scheduleBake() {
 
 function rebake() {
   if (state.paths.length === 0 || state.paths[0].anchors.length < 2) return;
+  // Cap the bake's long edge so panel 4 stops growing once the
+  // drawing exceeds its natural box. Below the cap, the historical
+  // scale (1.6 with 24px padding) still applies; above it, scale
+  // shrinks so the drawing fits — like panel 2's auto-fit.
+  // paddingLogical = 24 / 1.6 = 15 (anchor-space units); padding
+  // tracks scale so the visual margin proportion stays constant.
+  const PANEL4_TARGET_LONG = 480;
+  const DEFAULT_SCALE = 1.6;
+  const PADDING_LOGICAL = 15;
+  const stroke = samplePath(state.paths[0], 16);
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of stroke) {
+    if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+  }
+  const longBbox = Math.max(maxX - minX, maxY - minY);
+  const fitScale = PANEL4_TARGET_LONG / Math.max(1, longBbox + 2 * PADDING_LOGICAL);
+  const scale = Math.min(DEFAULT_SCALE, fitScale);
+  const padding = Math.max(1, Math.round(PADDING_LOGICAL * scale));
   let baked;
   try {
     // Always bake from bezier samples with anchor widths. Panel 4
     // uses the same disc-stamping algorithm as panel 1.
     baked = window.Neonic.bakeFromStroke({
-      stroke: samplePath(state.paths[0], 16),
-      scale: 1.6, padding: 24, half: 'full',
+      stroke, scale, padding, half: 'full',
     });
   } catch (e) {
     bakeMeta.textContent = 'bake failed: ' + e.message;
