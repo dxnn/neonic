@@ -4,97 +4,287 @@
 <meta charset="utf-8" />
 <title>Neonic · palette-cycle drawing tool</title>
 <meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" />
 <style>
   :root {
-    --bg: #f7f5ee;
-    --ink: #15151a;
-    --muted: #6b6963;
-    --rule: rgba(21,21,26,.12);
-    --accent: #1f7bff;
+    --paper: #f6f3ec;
+    --paper-2: #efeae0;
+    --ink: #1b1a17;
+    --ink-2: #3a3833;
+    --muted: #7a766b;
+    --line: rgba(27,26,23,.10);
+    --line-2: rgba(27,26,23,.18);
+    --chip-bg: #ffffff;
+    --hot: #ff3366;
+    --cool: #1f6feb;
+    --warm: #ff8a3d;
+    --mint: #1fb88a;
+    --violet: #7a5af0;
+    --yellow: #f5c518;
+    --accent: #1f6feb;
+    --shadow-sm: 0 1px 0 rgba(255,255,255,.6) inset, 0 1px 2px rgba(0,0,0,.04);
+    --shadow-md: 0 1px 0 rgba(255,255,255,.6) inset, 0 6px 18px rgba(27,26,23,.06), 0 1px 2px rgba(0,0,0,.05);
+    --radius: 14px;
   }
-  html, body { margin: 0; background: var(--bg); color: var(--ink);
-    font: 15px/1.55 ui-serif, Georgia, "Iowan Old Style", serif; }
-  .wrap { max-width: 1180px; margin: 0 auto; padding: 40px 24px 80px; }
 
-  header h1 { font-weight: 500; font-size: 28px; letter-spacing: -0.02em;
-    margin: 0 0 6px; line-height: 1.15; }
-  header .deck { color: var(--muted); font-size: 15px; max-width: 64ch; margin: 0; }
-  header .meta { color: var(--muted); font-size: 12px;
-    font-family: ui-sans-serif, system-ui, sans-serif;
-    text-transform: uppercase; letter-spacing: .12em; margin-bottom: 14px; }
+  html, body { background: var(--paper); }
+  body {
+    margin: 0;
+    font-family: 'Geist', ui-sans-serif, system-ui, sans-serif;
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    min-height: 100vh;
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(255,138,61,.10), transparent 60%),
+      radial-gradient(1000px 700px at -10% 110%, rgba(31,111,235,.08), transparent 55%),
+      var(--paper);
+  }
+  * { box-sizing: border-box; }
 
+  /* ─── Layout ─────────────────────────────────────────────────── */
+  .app { max-width: 1440px; margin: 0 auto; padding: 18px 22px 28px; }
+
+  .hdr {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 20px; padding: 2px 4px 18px;
+  }
+  .brand { display:flex; align-items:center; gap: 14px; }
+  .glyph {
+    width: 44px; height: 44px; flex: 0 0 auto;
+    border-radius: 12px;
+    background: var(--ink);
+    padding: 4px;
+    box-shadow: 0 8px 24px rgba(27,26,23,.18), 0 1px 0 rgba(255,255,255,.06) inset;
+  }
+  .glyph canvas { width: 100%; height: 100%; display: block; border-radius: 8px; }
+
+  .wordmark {
+    font-family: 'Bricolage Grotesque', 'Geist', sans-serif;
+    font-weight: 800; font-size: 30px; letter-spacing: -0.02em;
+    line-height: 1; color: var(--ink);
+    font-variation-settings: "wdth" 110, "opsz" 24;
+  }
+  .tag {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11px; letter-spacing: .04em; color: var(--muted);
+    text-transform: uppercase; margin-top: 4px;
+  }
+
+  .hdr-mid {
+    display:flex; align-items:center; gap: 10px;
+    font-family: 'Bricolage Grotesque', sans-serif;
+    font-weight: 600; font-size: 22px; color: var(--ink);
+    line-height: 1.1; max-width: 460px;
+    letter-spacing: -.01em;
+    font-variation-settings: "wdth" 100, "opsz" 22;
+  }
+
+  .hdr-r { display:flex; align-items:center; gap: 10px; }
+
+  /* ─── Buttons ────────────────────────────────────────────────── */
+  .btn {
+    appearance:none; border: 1px solid var(--line-2); background: var(--chip-bg);
+    color: var(--ink); border-radius: 999px; padding: 9px 15px;
+    font: 500 13px/1 'Geist', sans-serif; cursor: default;
+    display:inline-flex; align-items:center; gap:8px;
+    box-shadow: var(--shadow-sm); white-space: nowrap;
+    text-decoration: none;
+    transition: transform .15s ease, background .15s ease, color .15s ease;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:disabled { opacity: .35; pointer-events: none; }
+  .btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .btn.primary:hover { background: #2a2823; }
+  .btn.ghost { background: transparent; box-shadow: none; }
+  .btn.juicy {
+    color: white; border: 0;
+    padding: 9px 15px; font-weight: 600;
+    background: #1fb88a;
+    box-shadow:
+      0 4px 12px rgba(31,184,138,.30),
+      0 1px 0 rgba(255,255,255,.25) inset,
+      0 -1px 0 rgba(0,0,0,.08) inset;
+  }
+  .btn.juicy:hover { background: #19a378; transform: translateY(-1px); }
+
+  /* ─── Grid ───────────────────────────────────────────────────── */
   .grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    grid-template-areas:
-      "draw animate"
-      "bezier palette";
-    gap: 18px;
-    margin-top: 28px;
+    grid-template-columns: 1.05fr .95fr;
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 14px;
+    height: calc(100vh - 130px);
+    min-height: 660px;
   }
-  .panel { background: #fff; border: .5px solid var(--rule);
-    border-radius: 10px; padding: 16px; min-width: 0; }
-  .panel.dark { background: #0a0a0b; }
-  .panel.draw { grid-area: draw; }
-  .panel.animate { grid-area: animate; }
-  .panel.bezier { grid-area: bezier; }
-  .panel.palette { grid-area: palette; }
-  .panel-tag { color: var(--muted); font-size: 11px;
-    font-family: ui-sans-serif, system-ui, sans-serif;
-    text-transform: uppercase; letter-spacing: .12em; margin-bottom: 6px; }
-  .panel.dark .panel-tag { color: rgba(232,230,223,.55); }
-  .panel h2 { font-weight: 500; font-size: 17px; letter-spacing: -0.01em;
-    margin: 0 0 12px; }
-  .panel.dark h2 { color: #e8e6df; }
+  .panel {
+    background: var(--chip-bg);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-md);
+    display: flex; flex-direction: column; overflow: hidden;
+    position: relative;
+    min-width: 0;
+  }
+  .panel-hd {
+    display:flex; align-items:center; justify-content:space-between;
+    gap: 14px; padding: 12px 14px 8px;
+    flex-shrink: 0;
+  }
+  .panel-hd-l { display: flex; align-items:center; gap: 12px; min-width:0; }
+  .step {
+    width: 30px; height: 30px; flex: 0 0 auto;
+    border-radius: 9px;
+    display:grid; place-items:center;
+    font-family: 'Bricolage Grotesque', sans-serif;
+    font-weight: 700; font-size: 14px; color: white;
+    box-shadow: 0 4px 10px rgba(0,0,0,.10), 0 1px 0 rgba(255,255,255,.25) inset;
+  }
+  .step.s1 { background: linear-gradient(160deg, #ff3366, #ff7a3d); }
+  .step.s2 { background: linear-gradient(160deg, #7a5af0, #b86cf0); }
+  .step.s3 { background: linear-gradient(160deg, #1fb88a, #4cc9a6); }
+  .step.s4 { background: linear-gradient(160deg, #1f6feb, #58a6ff); }
 
-  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
-    margin-top: 12px; font: 12px ui-sans-serif, system-ui, sans-serif;
-    color: var(--ink); }
-  .panel.dark .row { color: #e8e6df; }
-  .row label { display: inline-flex; align-items: center; gap: 6px;
-    color: var(--muted); }
-  .panel.dark .row label { color: rgba(232,230,223,.55); }
-  .row .meta { color: var(--muted); margin-left: auto; }
-  .panel.dark .row .meta { color: rgba(232,230,223,.55); }
-  button { appearance: none; background: var(--ink); color: #fff;
-    border: 0; border-radius: 6px; padding: 6px 12px;
-    font: 12px ui-sans-serif, system-ui, sans-serif; font-weight: 500;
-    cursor: default; }
-  button.ghost { background: transparent; color: var(--ink);
-    border: .5px solid var(--rule); }
-  .panel.dark button.ghost { color: #e8e6df; border-color: rgba(255,255,255,.18); }
-  button:disabled { opacity: .35; }
-  input[type=number], select {
-    background: #fafaf6; color: var(--ink);
-    border: .5px solid var(--rule); border-radius: 6px;
-    padding: 4px 8px; font: 12px ui-sans-serif, system-ui, sans-serif; }
-  .panel.dark input[type=number], .panel.dark select {
-    background: #15151a; color: #e8e6df; border-color: rgba(255,255,255,.12); }
-  input[type=range] { width: 140px; vertical-align: middle; }
-  input[type=color] { width: 36px; height: 28px; padding: 0;
-    border: .5px solid var(--rule); border-radius: 6px;
-    background: transparent; }
+  .h2 {
+    font-family: 'Bricolage Grotesque', sans-serif;
+    font-weight: 700; font-size: 22px; line-height: 1;
+    letter-spacing: -.015em; margin: 0;
+    color: var(--ink); white-space: nowrap;
+    font-variation-settings: "wdth" 100, "opsz" 24;
+  }
+  .panel-hd-r { display: flex; align-items:center; gap: 6px; flex-shrink: 0; }
 
-  canvas#draw, canvas#bezier {
-    display: block; width: 100%; height: 320px;
-    background: #fafaf6; border-radius: 6px;
-    user-select: none; -webkit-user-select: none;
+  .panel-body { flex: 1; min-height: 0; padding: 2px 14px 12px;
+                display: flex; flex-direction: column; }
+  .panel-foot {
+    border-top: 1px solid var(--line);
+    padding: 10px 14px;
+    display: flex; align-items:center; gap: 10px; flex-wrap: nowrap;
+    background: linear-gradient(180deg, transparent, rgba(0,0,0,.015));
+    flex-shrink: 0;
+  }
+
+  /* ─── Chips & segmented ──────────────────────────────────────── */
+  .chip {
+    appearance: none;
+    border: 1px solid var(--line-2); background: var(--chip-bg);
+    border-radius: 999px; padding: 7px 11px;
+    font: 500 12px/1 'Geist', sans-serif; color: var(--ink-2);
+    display:inline-flex; align-items:center; gap: 6px;
+    cursor: default; white-space: nowrap;
+  }
+  .chip.mono { font-family:'JetBrains Mono', monospace; font-size: 11px; }
+  .chip svg { width: 12px; height: 12px; }
+  button.chip:hover { border-color: var(--ink); color: var(--ink); }
+  .chip:disabled { opacity: .35; pointer-events: none; }
+
+  /* Compound zoom chip: [−] <input %> [+] */
+  .chip.zoom { padding: 3px 4px; gap: 0; }
+  .chip.zoom button {
+    appearance: none; border: 0; background: transparent; color: inherit;
+    padding: 3px 8px; border-radius: 999px; cursor: default;
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    min-width: 20px;
+  }
+  .chip.zoom button:hover { background: rgba(0,0,0,.06); color: var(--ink); }
+  .chip.zoom input {
+    appearance: none; border: 0; background: transparent; color: var(--ink);
+    font: 500 11px/1 'JetBrains Mono', monospace; padding: 4px 2px;
+    text-align: center; width: 3.4em; outline: none;
+  }
+  .chip.zoom input:focus { background: var(--paper-2); border-radius: 999px; }
+
+  .seg {
+    display: inline-flex; background: var(--chip-bg);
+    border: 1px solid var(--line-2); border-radius: 999px; padding: 2px;
+    box-shadow: var(--shadow-sm);
+  }
+  .seg button {
+    appearance:none; border: 0; background: transparent;
+    font: 500 12px/1 'Geist', sans-serif;
+    padding: 5px 11px; border-radius: 999px; color: var(--ink-2);
+    cursor: default; transition: color .15s ease, background .15s ease;
+  }
+  .seg button:hover { color: var(--ink); }
+  .seg button.on { background: var(--ink); color: var(--paper); }
+
+  /* ─── Sliders ────────────────────────────────────────────────── */
+  .slider-row { display:flex; align-items:center; gap: 8px; }
+  .slider-row label { font: 500 11px/1 'JetBrains Mono', monospace;
+    color: var(--muted); white-space:nowrap;
+    text-transform: uppercase; letter-spacing: .06em; }
+  .slider-row .val { font:600 11px/1 'JetBrains Mono', monospace;
+    color: var(--ink); min-width: 28px; text-align:right; }
+  input[type=range].nslider {
+    -webkit-appearance: none; appearance: none;
+    width: 90px; height: 22px; background: transparent; cursor: default;
+  }
+  input[type=range].nslider::-webkit-slider-runnable-track {
+    height: 4px; background: var(--paper-2); border-radius: 2px;
+    border: 1px solid var(--line);
+  }
+  input[type=range].nslider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--ink); margin-top: -6px;
+    border: 2px solid var(--paper); box-shadow: 0 1px 3px rgba(0,0,0,.2);
+  }
+  input[type=range].nslider::-moz-range-track {
+    height: 4px; background: var(--paper-2); border-radius: 2px;
+    border: 1px solid var(--line);
+  }
+  input[type=range].nslider::-moz-range-thumb {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--ink); border: 2px solid var(--paper); cursor: default;
+  }
+
+  /* ─── Canvas wrappers ───────────────────────────────────────── */
+  .canvas-wrap {
+    flex:1; min-height: 0; position: relative;
+    border-radius: 10px; overflow: hidden;
+    background:
+      linear-gradient(90deg, rgba(0,0,0,.03) 1px, transparent 1px) 0 0/24px 24px,
+      linear-gradient(0deg,  rgba(0,0,0,.03) 1px, transparent 1px) 0 0/24px 24px,
+      #fbf8f1;
+    border: 1px dashed var(--line-2);
+  }
+  .canvas-wrap canvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%; display: block;
     touch-action: none;
+    user-select: none; -webkit-user-select: none;
+    cursor: crosshair;
   }
-  canvas#draw { cursor: crosshair; }
-  canvas#bezier { cursor: default; }
+  .edit-wrap {
+    flex:1; min-height: 0; position: relative;
+    border-radius: 10px; overflow: hidden;
+    background:
+      linear-gradient(90deg, rgba(0,0,0,.04) 1px, transparent 1px) 0 0/12px 12px,
+      linear-gradient(0deg,  rgba(0,0,0,.04) 1px, transparent 1px) 0 0/12px 12px,
+      #f8f5ee;
+    border: 1px solid var(--line);
+  }
+  .edit-wrap canvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%; display: block;
+    touch-action: none;
+    user-select: none; -webkit-user-select: none;
+    cursor: default;
+  }
   canvas#bezier.pan-mode { cursor: grab; }
-  canvas#bezier.panning { cursor: grabbing; }
-  .zoom-btn { padding: 4px 8px; font-family: ui-monospace, monospace; }
-  canvas#ramp {
-    display: block; width: 100%; height: 64px;
-    background: #fafaf6; border-radius: 6px;
-    touch-action: none; user-select: none; -webkit-user-select: none;
-  }
-  .out-host {
-    display: grid; place-items: center;
-    height: 320px; padding: 4px;
-    border-radius: 6px; background: #050507;
+  canvas#bezier.panning  { cursor: grabbing; }
+
+  .anim-wrap {
+    flex:1; min-height: 0; position: relative;
+    border-radius: 10px; overflow: hidden;
+    background: #14110d;
+    background-image:
+      radial-gradient(800px 400px at 50% 130%, rgba(255,138,61,.18), transparent 60%),
+      radial-gradient(600px 400px at 50% -20%, rgba(31,111,235,.15), transparent 60%);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
+    display: grid; place-items: center; padding: 4px;
   }
   canvas#out {
     display: block; max-width: 100%; max-height: 100%;
@@ -103,23 +293,21 @@
     filter: drop-shadow(0 8px 22px rgba(0,0,0,.5));
   }
 
-  footer { margin-top: 56px; padding-top: 20px;
-    border-top: .5px solid var(--rule);
-    font: 13px ui-sans-serif, system-ui, sans-serif; color: var(--muted); }
-  footer a { color: var(--ink); }
-
-  /* ─── Playlist ───────────────────────────────────────────────── */
-  .palette-subtitle { color: var(--muted); font-size: 12px;
-    font-family: ui-sans-serif, system-ui, sans-serif;
-    margin: -4px 0 12px; }
+  /* ─── Palettes panel — wrap only; drawer guts preserved ─── */
+  .palettes-pane { flex: 1; min-height: 0; overflow: auto;
+                   padding: 4px 2px;
+                   display: flex; flex-direction: column; gap: 10px; }
+  .palette-subtitle { color: var(--muted); font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    text-transform: uppercase; letter-spacing: .06em; margin: 0 0 4px; }
   .playlist { display: flex; flex-direction: column; gap: 8px; }
 
-  /* Row uses grid-template-rows to animate the drawer open/close. */
+  /* === preserved playlist editor === */
   .pal-row {
     display: grid; grid-template-rows: auto 0fr;
-    background: #fafaf6;
-    border: .5px solid var(--rule); border-radius: 8px;
-    font: 12px ui-sans-serif, system-ui, sans-serif;
+    background: var(--paper);
+    border: 1px solid var(--line); border-radius: 12px;
+    font: 12px 'Geist', ui-sans-serif, system-ui, sans-serif;
     cursor: default;
     transition: grid-template-rows 200ms ease,
                 background-color 150ms ease,
@@ -127,9 +315,9 @@
     overflow: hidden;
   }
   .pal-row.open { grid-template-rows: auto 1fr;
-    border-color: var(--accent); background: #eef4ff; }
+    border-color: var(--ink); background: #fffbf3; }
   .pal-row.dragging { opacity: .35; }
-  .pal-row.drag-over { border-color: var(--accent); border-style: dashed; }
+  .pal-row.drag-over { border-color: var(--ink); border-style: dashed; }
 
   .pal-row-head {
     display: flex; align-items: center; gap: 10px;
@@ -139,13 +327,13 @@
   .pal-row.open .pal-row-head:hover { background: transparent; }
 
   .pal-row .play-marker {
-    color: var(--accent); font-size: 10px;
+    color: var(--cool); font-size: 10px;
     width: 10px; opacity: 0; flex-shrink: 0;
   }
   .pal-row.playing .play-marker { opacity: 1; }
   .pal-row .grip {
     cursor: grab; color: var(--muted);
-    user-select: none; font-family: ui-monospace, monospace; font-size: 14px;
+    user-select: none; font-family: 'JetBrains Mono', monospace; font-size: 14px;
     flex-shrink: 0;
   }
   .pal-row .swatch {
@@ -159,15 +347,15 @@
   }
   .pal-row .row-field input {
     width: 3.2em; padding: 2px 4px;
-    font: 11px ui-sans-serif, system-ui, sans-serif;
+    font: 11px 'Geist', ui-sans-serif, system-ui, sans-serif;
     background: #fafaf6; color: var(--ink);
-    border: .5px solid var(--rule); border-radius: 4px;
+    border: 1px solid var(--line); border-radius: 4px;
   }
 
   .pal-row-drawer { overflow: hidden; min-height: 0; }
   .pal-row-drawer-inner {
     padding: 12px 12px 14px; display: flex; flex-direction: column; gap: 12px;
-    border-top: 1px dashed var(--accent); margin: 0 10px;
+    border-top: 1px dashed var(--ink); margin: 0 10px;
   }
   .drawer-row {
     display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
@@ -175,16 +363,16 @@
   .preset-name {
     width: 9em; flex: 0 0 9em; min-width: 0;
     padding: 5px 9px;
-    font: 12px ui-sans-serif, system-ui, sans-serif;
+    font: 12px 'Geist', ui-sans-serif, system-ui, sans-serif;
     background: #fafaf6; color: var(--ink);
-    border: .5px solid var(--rule); border-radius: 6px;
+    border: 1px solid var(--line); border-radius: 6px;
   }
   .preset-select {
     max-width: 11em;
     padding: 5px 9px;
-    font: 12px ui-sans-serif, system-ui, sans-serif;
+    font: 12px 'Geist', ui-sans-serif, system-ui, sans-serif;
     background: #fafaf6; color: var(--ink);
-    border: .5px solid var(--rule); border-radius: 6px;
+    border: 1px solid var(--line); border-radius: 6px;
   }
   .drawer-ramp {
     display: block; width: 100%; height: 78px;
@@ -198,145 +386,258 @@
   }
   .stop-row input[type=color] {
     width: 30px; height: 24px; padding: 0;
-    border: .5px solid var(--rule); border-radius: 4px;
+    border: 1px solid var(--line); border-radius: 4px;
     background: transparent;
   }
   .stop-helper { color: var(--muted); font-style: italic; font-size: 11px; }
   .stop-row .spacer { flex: 1; }
   .stop-row .remove-palette {
-    background: transparent; color: #c8462b;
-    border: .5px solid #c8462b;
+    appearance: none; background: transparent;
+    color: #c8462b; border: 1px solid #c8462b;
+    border-radius: 999px; padding: 6px 11px;
+    font: 500 12px/1 'Geist', sans-serif; cursor: default;
   }
   .stop-row .remove-palette:hover { background: rgba(200,70,43,.08); }
-
-  .add-palette-row { display: flex; justify-content: center; margin-top: 12px; }
-  .add-palette {
-    border-style: dashed !important; padding: 8px 16px;
+  /* drawer buttons that aren't part of the new chip/btn system */
+  .pal-row-drawer-inner button:not(.remove-palette):not(.chip):not(.btn) {
+    appearance: none; background: var(--chip-bg);
+    border: 1px solid var(--line-2); color: var(--ink-2);
+    border-radius: 999px; padding: 6px 11px;
+    font: 500 12px/1 'Geist', sans-serif; cursor: default;
+  }
+  .pal-row-drawer-inner button:not(.remove-palette):not(.chip):not(.btn):hover {
+    border-color: var(--ink); color: var(--ink);
   }
 
-  @media (max-width: 800px) {
-    .grid {
-      grid-template-columns: 1fr;
-      grid-template-areas: "draw" "animate" "bezier" "palette";
-    }
-    canvas#draw, canvas#bezier { height: 280px; }
+  ::selection { background: rgba(255,51,102,.2); color: var(--ink); }
+
+  /* ─── Responsive ─────────────────────────────────────────────── */
+  @media (max-width: 820px) { .hdr-mid { display: none; } }
+  @media (max-width: 960px) {
+    .app { padding: 14px 14px 22px; }
+    .grid { gap: 10px; height: calc(100vh - 110px); }
+    .h2 { font-size: 18px; }
+    .wordmark { font-size: 26px; }
+    .panel-foot { padding: 8px 10px; }
+  }
+  @media (max-width: 720px) {
+    .grid { grid-template-columns: 1fr;
+            grid-template-rows: repeat(4, minmax(360px, auto));
+            height: auto; }
   }
 
-  /* ─── Dark mode (auto, OS preference) ───────────────────────────── */
+  /* ─── Dark mode (OS preference) ─────────────────────────────── */
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #15151a;
+      --paper: #15151a;
+      --paper-2: #1c1c22;
       --ink: #e8e6df;
+      --ink-2: #c6c4be;
       --muted: #8a8780;
-      --rule: rgba(232,230,223,.14);
-      --accent: #5a9fff;
+      --line: rgba(232,230,223,.10);
+      --line-2: rgba(232,230,223,.18);
+      --chip-bg: #1f1f24;
+      --shadow-sm: 0 1px 0 rgba(255,255,255,.04) inset, 0 1px 2px rgba(0,0,0,.4);
+      --shadow-md: 0 1px 0 rgba(255,255,255,.04) inset,
+                   0 6px 18px rgba(0,0,0,.40), 0 1px 2px rgba(0,0,0,.4);
     }
-    .panel { background: #1f1f24; }
-    .panel.dark { background: #0a0a0b; }
-    canvas#draw, canvas#bezier, canvas#ramp { background: #15151a; }
-    .demo input[type=number],
-    .demo select,
-    .row input[type=number],
-    .row select,
-    .row input[type=text],
-    input[type=number], select, input[type=text] {
-      background: #15151a; color: var(--ink);
-      border-color: rgba(255,255,255,.12);
+    body {
+      background:
+        radial-gradient(1200px 600px at 80% -10%, rgba(255,138,61,.07), transparent 60%),
+        radial-gradient(1000px 700px at -10% 110%, rgba(31,111,235,.07), transparent 55%),
+        var(--paper);
     }
-    .pal-row { background: #15151a; }
-    .pal-row.open { border-color: var(--accent); background: #1c2540; }
+    .btn.primary { background: var(--ink); color: #14110d; border-color: var(--ink); }
+    .btn.primary:hover { background: #fffefb; }
+    .seg button.on { background: var(--ink); color: #14110d; }
+    .canvas-wrap {
+      background:
+        linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px) 0 0/24px 24px,
+        linear-gradient(0deg,  rgba(255,255,255,.04) 1px, transparent 1px) 0 0/24px 24px,
+        #0e0e12;
+      border-color: var(--line-2);
+    }
+    .edit-wrap {
+      background:
+        linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px) 0 0/12px 12px,
+        linear-gradient(0deg,  rgba(255,255,255,.04) 1px, transparent 1px) 0 0/12px 12px,
+        #14141a;
+      border-color: var(--line);
+    }
+    input[type=range].nslider::-webkit-slider-thumb { border-color: var(--paper); }
+    input[type=range].nslider::-moz-range-thumb     { border-color: var(--paper); }
+    .pal-row { background: var(--paper-2); border-color: var(--line); }
+    .pal-row.open { background: #24244a; border-color: var(--ink); }
     .pal-row-head:hover { background: rgba(255,255,255,.04); }
     .pal-row .row-field input,
-    .preset-name, .preset-select { background: #0e0e12; color: var(--ink); }
+    .preset-name, .preset-select { background: #0e0e12; color: var(--ink);
+                                   border-color: var(--line); }
     .drawer-ramp { background: #0e0e12; }
     .stop-row .remove-palette { color: #ff7b58; border-color: #ff7b58; }
     .stop-row .remove-palette:hover { background: rgba(255,123,88,.1); }
+    .chip.zoom button:hover { background: rgba(255,255,255,.06); }
+    .chip.zoom input:focus { background: var(--paper-2); }
   }
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="app">
 
-<header>
-  <canvas class="logo-cycle" data-src="logo.neonic.png"
-          style="display:block;height:36px;width:auto;margin-bottom:14px"></canvas>
-  <div class="meta">SVG path → palette-cycle · drawing tool</div>
-  <h1>Sketch a stroke. Tweak the curve. Watch the palette cycle.</h1>
-  <p class="deck">Draw on the left, refine the path's anchors and tangents below it,
-    pick a palette on the right. The output cycles in real time.</p>
-</header>
-
-<div class="grid">
-
-  <section class="panel draw">
-    <div class="panel-tag">Step 1 · Draw</div>
-    <h2>Sketch a path.</h2>
-    <canvas id="draw"></canvas>
-    <div class="row">
-      <button class="ghost" id="clear">Clear</button>
-      <button class="ghost" id="import">Import</button>
-      <label>Stroke
-        <input id="strokeW" type="range" min="6" max="64" value="11" />
-        <span id="strokeW-val">11</span>
-      </label>
-      <label title="0 = uniform width; 1 = max speed-based variation">Thinning
-        <input id="thinning" type="range" min="0" max="1" step="0.05" value="0.4" />
-        <span id="thinning-val">0.4</span>
-      </label>
+  <header class="hdr">
+    <div class="brand">
+      <div class="glyph">
+        <canvas class="logo-cycle" data-src="neonic.neonic.png"></canvas>
+      </div>
+      <div>
+        <div class="wordmark">neonic</div>
+        <div class="tag">Hand drawn palette cycling PNGs</div>
+      </div>
     </div>
-  </section>
-
-  <section class="panel dark animate">
-    <div class="panel-tag">Step 4 · Animate</div>
-    <h2>Live preview.</h2>
-    <div class="out-host"><canvas id="out"></canvas></div>
-    <div class="row">
-      <button class="ghost" id="export">Export</button>
-      <button class="ghost" id="record">Record</button>
-      <span class="meta" id="bake-meta"></span>
+    <div class="hdr-mid"><span>animate your imagination</span></div>
+    <div class="hdr-r">
+      <a class="btn ghost" href="https://inwordsandpictures.com/neonic">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+        How it works
+      </a>
     </div>
-  </section>
+  </header>
 
-  <section class="panel bezier">
-    <div class="panel-tag">Step 2 · Edit</div>
-    <h2>Refine anchors &amp; tangents.</h2>
-    <canvas id="bezier"></canvas>
-    <div class="row">
-      <button class="ghost" id="undo">Undo</button>
-      <button class="ghost" id="redo">Redo</button>
-      <button class="ghost" id="smooth">Smooth</button>
-      <label title="Tap mode: drag handles, add anchor at point, remove anchor, or pan the view">Tap
-        <select id="bezierMode">
+  <main class="grid">
+
+    <!-- Panel 1: Sketch it -->
+    <section class="panel">
+      <div class="panel-hd">
+        <div class="panel-hd-l">
+          <div class="step s1">1</div>
+          <h2 class="h2">Sketch a path</h2>
+        </div>
+        <div class="panel-hd-r">
+          <button class="btn primary" id="import">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Import
+          </button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="canvas-wrap"><canvas id="draw"></canvas></div>
+      </div>
+      <div class="panel-foot">
+        <button class="chip" id="clear">Clear</button>
+        <div style="flex:1"></div>
+        <div class="slider-row">
+          <label>Stroke</label>
+          <input id="strokeW" class="nslider" type="range" min="6" max="64" value="11" />
+          <span class="val" id="strokeW-val">11</span>
+        </div>
+        <div class="slider-row" title="0 = uniform width; 1 = max speed-based variation">
+          <label>Thin</label>
+          <input id="thinning" class="nslider" type="range" min="0" max="1" step="0.05" value="0.4" />
+          <span class="val" id="thinning-val">0.4</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Panel 2: Tweak it -->
+    <section class="panel">
+      <div class="panel-hd">
+        <div class="panel-hd-l">
+          <div class="step s2">2</div>
+          <h2 class="h2">Tweak anchors</h2>
+        </div>
+        <div class="panel-hd-r">
+          <button class="btn primary" id="smooth">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M3 18c4 0 4-12 8-12s4 12 8 12"/></svg>
+            Smooth
+          </button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="edit-wrap"><canvas id="bezier"></canvas></div>
+      </div>
+      <div class="panel-foot">
+        <button class="chip" id="undo" title="Undo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 015 5v0a5 5 0 01-5 5H9"/></svg>
+        </button>
+        <button class="chip" id="redo" title="Redo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 00-5 5v0a5 5 0 005 5h6"/></svg>
+        </button>
+        <div style="width:1px; height:18px; background:var(--line); margin:0 2px"></div>
+        <div class="seg" id="tool-seg" role="tablist" aria-label="Tap mode">
+          <button class="on" data-tool="drag">drag</button>
+          <button data-tool="add">add</button>
+          <button data-tool="remove">remove</button>
+          <button data-tool="pan">pan</button>
+        </div>
+        <!-- Hidden mirror of the segmented control; the existing JS listens
+             to this select's change event, so we keep it as the source of
+             truth and the seg above just drives it. -->
+        <select id="bezierMode" hidden>
           <option value="drag">drag</option>
           <option value="add">add anchor</option>
           <option value="remove">remove anchor</option>
           <option value="pan">pan</option>
         </select>
-      </label>
-      <button class="ghost zoom-btn" id="zoomOut" title="Zoom out">−</button>
-      <button class="ghost zoom-btn" id="zoomIn" title="Zoom in">+</button>
-      <button class="ghost" id="zoomFit" title="Reset to auto-fit">fit</button>
-      <span class="meta" id="bez-meta"></span>
-    </div>
-  </section>
+        <div style="flex:1"></div>
+        <div class="chip mono zoom">
+          <button id="zoomOut" title="Zoom out">−</button>
+          <input id="zoom-val" type="text" value="100%" />
+          <button id="zoomIn" title="Zoom in">+</button>
+        </div>
+        <button class="chip" id="zoomFit" title="Reset to auto-fit">fit</button>
+        <span id="bez-meta" hidden></span>
+      </div>
+    </section>
 
-  <section class="panel palette">
-    <div class="panel-tag">Step 3 · Color</div>
-    <h2>Palette playlist.</h2>
-    <p class="palette-subtitle"><span id="palette-count">1</span> palette<span id="palette-count-s">s</span></p>
-    <div id="playlist" class="playlist"></div>
-    <div class="add-palette-row">
-      <button class="ghost add-palette" id="addInline" title="Add a copy of the current palette">+ Add palette</button>
-    </div>
-  </section>
+    <!-- Panel 3: Paint it -->
+    <section class="panel">
+      <div class="panel-hd">
+        <div class="panel-hd-l">
+          <div class="step s3">3</div>
+          <h2 class="h2">Paint palette</h2>
+        </div>
+        <div class="panel-hd-r">
+          <button class="btn primary" id="addInline" title="Add a copy of the current palette">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add
+          </button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="palettes-pane">
+          <p class="palette-subtitle"><span id="palette-count">1</span> palette<span id="palette-count-s">s</span></p>
+          <div id="playlist" class="playlist"></div>
+        </div>
+      </div>
+    </section>
 
-</div>
+    <!-- Panel 4: Grab it -->
+    <section class="panel">
+      <div class="panel-hd">
+        <div class="panel-hd-l">
+          <div class="step s4">4</div>
+          <h2 class="h2">Grab the output</h2>
+        </div>
+        <div class="panel-hd-r">
+          <button class="btn juicy" id="export">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M12 3v12"/><polyline points="7 8 12 3 17 8"/><path d="M3 17v2a2 2 0 002 2h14a2 2 0 002-2v-2"/></svg>
+            Export
+          </button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="anim-wrap"><canvas id="out"></canvas></div>
+      </div>
+      <div class="panel-foot">
+        <button class="chip" id="record" style="color:#ff3366">
+          <svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.8" style="width:11px;height:11px"><circle cx="12" cy="12" r="6"/></svg>
+          Record
+        </button>
+        <div style="flex:1"></div>
+        <span class="chip mono" id="bake-meta"></span>
+      </div>
+    </section>
 
-<footer>
-  Curious how it works under the hood?
-  <a href="https://inwordsandpictures.com/neonic">Read the process essay &rarr;</a>
-</footer>
-
+  </main>
 </div>
 
 <script src="logo-engine-standalone.js"></script>
@@ -768,6 +1069,12 @@ function drawBezierPanel() {
     ? ` · ${(T.scale * 100).toFixed(0)}%`
     : '';
   bezMeta.textContent = `${totalAnchors} anchors${zoomNote}`;
+  // Mirror live zoom into the chip-input (skipped while the user is
+  // typing into it, so we don't fight their edit mid-keystroke).
+  const zv = document.getElementById('zoom-val');
+  if (zv && document.activeElement !== zv) {
+    zv.value = `${(T.scale * 100).toFixed(0)}%`;
+  }
 }
 
 // Recompute every anchor's display width from its pressure given the
@@ -2314,6 +2621,49 @@ refreshHistoryButtons();
 renderPlaylist();
 startCycleWatcher();
 scheduleRender();
+
+// ─── Chrome wiring ───────────────────────────────────────────────────────
+// The visible segmented control mirrors the hidden #bezierMode select, so
+// the existing change-event handler keeps driving all the tap-mode logic.
+const toolSeg = document.getElementById('tool-seg');
+if (toolSeg) {
+  toolSeg.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-tool]');
+    if (!btn) return;
+    for (const b of toolSeg.querySelectorAll('button')) b.classList.remove('on');
+    btn.classList.add('on');
+    const sel = document.getElementById('bezierMode');
+    sel.value = btn.dataset.tool;
+    sel.dispatchEvent(new Event('change'));
+  });
+}
+
+// Editable zoom %: typing a number applies it as a manual view scale.
+// On blur/Enter, parse, clamp, seed manual view, re-render.
+const zoomVal = document.getElementById('zoom-val');
+if (zoomVal) {
+  function applyZoom() {
+    const n = parseFloat(zoomVal.value);
+    if (!isFinite(n) || n <= 0) { scheduleRender(); return; }
+    const newScale = Math.max(0.05, Math.min(50, n / 100));
+    // Anchor the zoom on the bezier canvas centre — matches what the
+    // +/− buttons do.
+    const cx = bezCvs.clientWidth / 2;
+    const cy = bezCvs.clientHeight / 2;
+    const v = ensureManualView();
+    const logicalX = (cx - v.tx) / v.scale;
+    const logicalY = (cy - v.ty) / v.scale;
+    v.scale = newScale;
+    v.tx = cx - logicalX * newScale;
+    v.ty = cy - logicalY * newScale;
+    scheduleRender();
+  }
+  zoomVal.addEventListener('change', applyZoom);
+  zoomVal.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); zoomVal.blur(); }
+    if (e.key === 'Escape') { e.preventDefault(); zoomVal.blur(); scheduleRender(); }
+  });
+}
 </script>
 </body>
 </html>
