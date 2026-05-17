@@ -52,7 +52,49 @@ Workflow:
 - NEONIC PNG metadata persists `thinning` so widths round-trip losslessly
   on import (slider restored before recompute).
 
-## Session state — 2026-05-15 (updated)
+## Session state — 2026-05-16 (updated)
+
+Soft-mask compositing: the bake's smooth alpha mask is now retained
+and applied via `globalCompositeOperation='destination-in'` after the
+indexed-palette putImageData. Anti-aliasing therefore lives in the
+bake itself (per-pixel fractional alpha from canvas2d's path-fill AA)
+instead of relying on the browser to oversample-and-downsample a much
+bigger backing store.
+
+- `bakeFromStroke` / `bakeFromAnchors` / `bakeFromD` accept
+  `softMask: true` (default). When set, mask threshold drops from 200
+  to 1, and `maskCanvas` is returned alongside `indices`.
+- `CycleEngine._paint` composites the mask if present (one extra
+  drawImage + two composite-mode setter calls per frame).
+- `NeonicLoader`: `MIN_BAKE_EDGE` dropped 480 → 200 since AA no
+  longer needs the oversample budget.
+- Tooling/example HTML moved under `extra/`:
+  `extra/compare-tiny-canvas.html` is the A/B (binary vs. soft mask),
+  `extra/compare-playback.html` is a redirect stub,
+  `extra/disc-stamp-test.html` is a dev sandbox,
+  `extra/logo-embed.html` is the recommended-usage example (now
+  using the bundle).
+
+Pre-existing bug fix: `built[idx].slice()` in the gradient-bar
+click-to-add-stop handler. `buildRamp` returns flat `Uint8Array(255*3)`
+since bc548da; this call site was missed in the refactor.
+
+Per-frame compute on the live logo at 32px CSS height (dpr=2):
+- Binary path (old): bake 480×438 ≈ 210k px/frame.
+- Soft mask path (new): bake 200×186 ≈ 37k px/frame.
+- Quality should be visibly comparable; verify on retina via
+  `extra/compare-tiny-canvas.html` columns A vs C.
+
+Open / future work:
+- The soft-mask path means `MIN_BAKE_EDGE` could go lower than 200
+  for drawings with thicker strokes. Adaptive based on min stroke
+  width is the natural next step.
+- Anchor BBox doesn't account for stroke-half-width swelling, so
+  thicker strokes may clip into the padding band. Hasn't been seen
+  in practice. Worth tightening if a drawing comes in with very thick
+  edge strokes.
+
+## Session state — 2026-05-15
 Tests: `node --test tests/*.test.js` — 22 passing. Syntax check passes.
 
 This session: resolution-adaptive playback + smaller PNGs
