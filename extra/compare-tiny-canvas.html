@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Tiny-canvas regression check</title>
+  <title>Bake A/B: binary vs. soft-mask</title>
   <style>
     body { margin: 0; padding: 24px; font: 13px ui-sans-serif, system-ui, sans-serif;
            background: #14141a; color: #e8e8ee; }
@@ -18,8 +18,6 @@
             padding: 6px 10px; background: #1c1d26; border-radius: 4px; }
     .info { color: #9fa1ad; font-size: 11px; font-family: ui-monospace, monospace;
             margin-top: 6px; }
-    /* Mimic the aisoup topbar layout: canvas inside a link with
-       height fixed, width auto. */
     .demo canvas { display: block; width: auto; vertical-align: middle; }
     .h32  canvas { height:  32px; }
     .h48  canvas { height:  48px; }
@@ -30,22 +28,24 @@
   </style>
 </head>
 <body>
-  <h1>Tiny-canvas regression check</h1>
+  <h1>Bake A/B: binary vs. soft-mask</h1>
   <p class="lead">
-    Mimics the <code>height: 32px; width: auto</code> pattern used on
-    aisoup / neonic landing pages. Each row mounts the same PNG into
-    a canvas of the given CSS height; the bake size and per-frame
-    compute should adapt to the display, oversample enough to look
-    smooth, and not balloon at larger sizes (capped at 1024 px/edge).
+    Same anchors, same display canvas, three different bake strategies.
+    <strong>A</strong> is today's binary bake at the legacy-quality
+    floor (480 long). <strong>B</strong> keeps the same bake size but
+    swaps to soft-mask compositing — same compute per frame, edges from
+    the mask instead of from browser oversampling. <strong>C</strong>
+    drops the bake to 200 long (mask handles AA), targeting big compute
+    savings at the same visual quality.
   </p>
 
   <table>
     <thead>
       <tr>
         <th>CSS height</th>
-        <th>Default (ss=1)</th>
-        <th>ss=2 (smoother)</th>
-        <th>ss=0.5 (compute-tight)</th>
+        <th>A · binary, MIN=480</th>
+        <th>B · soft mask, MIN=480</th>
+        <th>C · soft mask, MIN=200</th>
       </tr>
     </thead>
     <tbody id="rows"></tbody>
@@ -54,13 +54,52 @@
   <script src="../neonic-playback.js"></script>
   <script>
     const HEIGHTS = [32, 48, 64, 120, 240, 480];
+    const SRC = '../logo.neonic.png';
+    const MAX_BAKE_EDGE = 1024;
 
-    function cellFor(label, h, ssAttr) {
+    function anchorBBox(anchors) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const a of anchors) {
+        if (a.x < minX) minX = a.x; if (a.x > maxX) maxX = a.x;
+        if (a.y < minY) minY = a.y; if (a.y > maxY) maxY = a.y;
+      }
+      return { w: maxX - minX, h: maxY - minY };
+    }
+
+    function chooseScale(canvas, bbox, padding, minEdge) {
+      const longBbox = Math.max(bbox.w, bbox.h);
+      if (longBbox <= 0) return 1;
+      const dpr  = window.devicePixelRatio || 1;
+      const ss   = +canvas.dataset.supersample || 1;
+      const cssLong = Math.max(canvas.clientWidth, canvas.clientHeight);
+      let targetLong = ss * Math.max(minEdge, cssLong * dpr);
+      if (targetLong > MAX_BAKE_EDGE) targetLong = MAX_BAKE_EDGE;
+      return Math.max(0.05, (targetLong - padding * 2) / longBbox);
+    }
+
+    // Mount one variant onto a canvas. `softMask` toggles the new mask
+    // compositing path; `minEdge` overrides MIN_BAKE_EDGE for this cell.
+    async function mountVariant(canvas, metadata, opts) {
+      const padding = metadata.padding != null ? metadata.padding : 24;
+      const half = metadata.half || 'full';
+      const bbox = anchorBBox(metadata.anchors);
+      const scale = chooseScale(canvas, bbox, padding, opts.minEdge);
+      const baked = window.Neonic.bakeFromAnchors({
+        anchors: metadata.anchors, scale, padding, half,
+        softMask: opts.softMask,
+      });
+      const eng = new window.Neonic.CycleEngine(canvas, baked);
+      const pal = metadata.palettes[metadata.activeIdx || 0];
+      eng.setPalette(window.Neonic.buildRamp(pal.stops));
+      eng.setSpeed(Math.abs(pal.speed || 40));
+      eng.start();
+      return { eng, baked };
+    }
+
+    function makeCell(h, opts) {
       const wrap = document.createElement('div');
       wrap.className = `h${h} demo`;
       const c = document.createElement('canvas');
-      c.dataset.src = '../logo.neonic.png';
-      if (ssAttr != null) c.dataset.supersample = String(ssAttr);
       wrap.appendChild(c);
       const info = document.createElement('div');
       info.className = 'info';
@@ -68,35 +107,48 @@
       const cell = document.createElement('td');
       cell.appendChild(wrap);
       cell.appendChild(info);
-      return { cell, canvas: c, info, label };
+      return { cell, canvas: c, info, opts };
     }
 
-    const tbody = document.getElementById('rows');
-    const slots = [];
-    for (const h of HEIGHTS) {
-      const tr = document.createElement('tr');
-      const hd = document.createElement('td');
-      hd.textContent = h + 'px';
-      tr.appendChild(hd);
-      const a = cellFor('default', h);
-      const b = cellFor('ss=2', h, 2);
-      const c = cellFor('ss=0.5', h, 0.5);
-      tr.appendChild(a.cell); tr.appendChild(b.cell); tr.appendChild(c.cell);
-      tbody.appendChild(tr);
-      slots.push(a, b, c);
+    async function build() {
+      const buf = await fetch(SRC).then((r) => r.arrayBuffer());
+      const { metadata } = window.NeonicPng.decode(new Uint8Array(buf));
+
+      const tbody = document.getElementById('rows');
+      const variants = [
+        { label: 'A',         softMask: false, minEdge: 480 },
+        { label: 'B',         softMask: true,  minEdge: 480 },
+        { label: 'C',         softMask: true,  minEdge: 200 },
+      ];
+
+      const slots = [];
+      for (const h of HEIGHTS) {
+        const tr = document.createElement('tr');
+        const head = document.createElement('td');
+        head.textContent = h + 'px';
+        tr.appendChild(head);
+        for (const v of variants) {
+          const slot = makeCell(h, v);
+          tr.appendChild(slot.cell);
+          slots.push(slot);
+        }
+        tbody.appendChild(tr);
+      }
+      // Force a layout pass so clientWidth/clientHeight reflect CSS.
+      void document.body.offsetHeight;
+
+      for (const s of slots) {
+        const { eng, baked } = await mountVariant(s.canvas, metadata, s.opts);
+        const px = baked.width * baked.height;
+        s.info.innerHTML =
+          `<b>${s.opts.label}</b> · bake ${baked.width}×${baked.height} ` +
+          `(${px.toLocaleString()} px/frame) ` +
+          `· css ${s.canvas.clientWidth}×${s.canvas.clientHeight} ` +
+          `· dpr ${window.devicePixelRatio || 1}`;
+      }
     }
 
-    // Mount all, then write per-cell info once each engine reports.
-    Promise.all(slots.map(async (s) => {
-      const eng = await window.NeonicLoader.mount(s.canvas);
-      const baked = eng.baked;
-      s.info.innerHTML =
-        `<b>${s.label}</b> · bake ${baked.width}×${baked.height} ` +
-        `(${(baked.width*baked.height).toLocaleString()} px/frame) ` +
-        `· css ${s.canvas.clientWidth}×${s.canvas.clientHeight} ` +
-        `· dpr ${window.devicePixelRatio || 1}`;
-      return eng;
-    }));
+    build();
   </script>
 </body>
 </html>
