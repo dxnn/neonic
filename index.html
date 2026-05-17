@@ -1199,7 +1199,7 @@ function rebake() {
     if (prev.running) engine.start();
   } else {
     const seedEntry = (displayedIdx >= 0) ? playlist[displayedIdx] : null;
-    engine.setSpeed(Math.abs(seedEntry?.speed ?? 60));
+    engine.setSpeed(seedEntry?.speed ?? 60);
     engine.start();
   }
   bakeMeta.textContent = `${baked.width}×${baked.height} · ${(baked.indices.byteLength/1024).toFixed(1)} KB`;
@@ -1485,7 +1485,7 @@ function removePlaylistItem(idx) {
     const entry = playlist[displayedIdx];
     if (engine && entry) {
       engine.setPalette(window.Neonic.buildRamp(entry.stops));
-      engine.setSpeed(Math.abs(entry.speed));
+      engine.setSpeed(entry.speed);
     }
     targetCycles = entry ? (entry.cycles || 1) : 1;
   } else if (idx < displayedIdx) {
@@ -1525,10 +1525,10 @@ function startCycleWatcher() {
     if (engine && engine.running && playlist.length >= 2 && displayedIdx >= 0) {
       if (engine.nextPalette !== null) {
         const tFrac = Math.max(0, Math.min(1,
-          (engine.offset - engine.nextStartOff) / 254));
+          Math.abs(engine.offset - engine.nextStartOff) / 254));
         const s1 = playlist[displayedIdx]?.speed ?? 0;
         const s2 = playlist[pendingNextIdx]?.speed ?? s1;
-        engine.setSpeed(Math.abs(s1 + (s2 - s1) * tFrac));
+        engine.setSpeed(s1 + (s2 - s1) * tFrac);
       } else if (pendingNextIdx >= 0) {
         displayedIdx = pendingNextIdx;
         pendingNextIdx = -1;
@@ -1536,13 +1536,17 @@ function startCycleWatcher() {
         targetCycles = playMode === 'surprise'
           ? 1 + Math.floor(Math.random() * 4)
           : (entry.cycles || 1);
-        engine.setSpeed(Math.abs(entry.speed));
+        engine.setSpeed(entry.speed);
         updatePlayingMarker();
       } else {
-        const cyclesPlayed = (engine.offset - engine.baseStartOff) / 255;
+        // Count cycles regardless of direction so negative speeds also
+        // trigger transitions; schedule nextStart in the direction of
+        // motion so the engine actually reaches it.
+        const cyclesPlayed = Math.abs(engine.offset - engine.baseStartOff) / 255;
         if (cyclesPlayed >= targetCycles) {
           const nextIdx = pickNextIdx();
-          const nextStart = engine.baseStartOff + targetCycles * 255;
+          const dir = engine.speed >= 0 ? 1 : -1;
+          const nextStart = engine.baseStartOff + dir * targetCycles * 255;
           engine.transitionTo(
             window.Neonic.buildRamp(playlist[nextIdx].stops),
             nextStart);
@@ -1637,7 +1641,7 @@ function renderPlaylist() {
     speedField.className = 'row-field';
     speedField.appendChild(document.createTextNode('speed '));
     const rowSpeedIn = document.createElement('input');
-    rowSpeedIn.type = 'number'; rowSpeedIn.min = '0'; rowSpeedIn.max = '200';
+    rowSpeedIn.type = 'number'; rowSpeedIn.min = '-200'; rowSpeedIn.max = '200';
     rowSpeedIn.value = entry.speed;
     speedField.appendChild(rowSpeedIn);
     head.appendChild(speedField);
@@ -1651,7 +1655,7 @@ function renderPlaylist() {
     cyclesIn.addEventListener('click', (e) => e.stopPropagation());
     cyclesIn.addEventListener('pointerdown', (e) => e.stopPropagation());
     rowSpeedIn.addEventListener('change', () => {
-      const v = Math.max(0, Math.min(200, +rowSpeedIn.value || 0));
+      const v = Math.max(-200, Math.min(200, +rowSpeedIn.value || 0));
       rowSpeedIn.value = v;
       entry.speed = v;
       if (i === displayedIdx && engine && engine.nextPalette === null) {
@@ -2094,7 +2098,7 @@ function applyImport(imp) {
     for (const p of imp.palettes) {
       playlist.push({
         stops: p.stops.map(s => ({ t: s.t, color: s.color.slice() })),
-        speed: p.speed != null ? Math.abs(p.speed) : 60,
+        speed: p.speed != null ? p.speed : 60,
         cycles: p.cycles != null ? p.cycles : 1,
       });
     }
@@ -2108,7 +2112,7 @@ function applyImport(imp) {
   currentRamp = window.Neonic.buildRamp(playlist[0].stops);
   if (engine && playlist[0]) {
     engine.setPalette(currentRamp);
-    engine.setSpeed(Math.abs(playlist[0].speed));
+    engine.setSpeed(playlist[0].speed);
   }
   renderPlaylist();
   scheduleRender();

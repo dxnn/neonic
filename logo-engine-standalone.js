@@ -401,7 +401,7 @@
   // sign is stored in metadata.palettes[*].speed).
   CycleEngine.prototype.setSpeed = function (s) { this.speed = s; };
   CycleEngine.prototype._writePalette = function () {
-    if (this.nextPalette !== null && (this.offset - this.nextStartOff) >= 254) {
+    if (this.nextPalette !== null && Math.abs(this.offset - this.nextStartOff) >= 254) {
       this.basePalette = this.nextPalette;
       this.baseStartOff = this.nextStartOff;
       this.nextPalette = null;
