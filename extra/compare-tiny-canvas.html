@@ -21,9 +21,11 @@
     .info { color: #9fa1ad; font-size: 11px; font-family: ui-monospace, monospace;
             margin-top: 6px; }
     .demo canvas { display: block; width: auto; vertical-align: middle; }
-    .h32 canvas { height: 32px; }
-    .h48 canvas { height: 48px; }
-    .h64 canvas { height: 64px; }
+    .h32  canvas { height:  32px; }
+    .h48  canvas { height:  48px; }
+    .h64  canvas { height:  64px; }
+    .h96  canvas { height:  96px; }
+    .h128 canvas { height: 128px; }
   </style>
 </head>
 <body>
@@ -43,7 +45,7 @@
 
   <script src="../neonic-playback.js"></script>
   <script>
-    const HEIGHTS = [32, 48, 64];
+    const HEIGHTS = [32, 48, 64, 96, 128];
     const SOURCES = [
       { name: 'logo.neonic.png (project)',         url: '../logo.neonic.png' },
       { name: 'logo.neonic 12.png (recent export)', url: 'logo-12.neonic.png' },

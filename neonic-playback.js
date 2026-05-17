@@ -92,7 +92,13 @@
 
     const STROKE_W = strokeWidth * scale;
     const N_SEG = 254;
-    const SUBSEG = Math.max(1, Math.ceil(lenSpan * scale / 800));
+    // Disc spacing must be ≤ a fraction of the stroke half-width in
+    // bake pixels; otherwise small bakes show a beaded line. See the
+    // bakeFromStroke version for the per-sample form.
+    const minDiscR = Math.max(0.5, STROKE_W / 2);
+    const targetSpacing = Math.max(0.4, minDiscR * 0.9);
+    const SUBSEG = Math.max(1,
+      Math.ceil((lenSpan * scale) / (N_SEG * targetSpacing)));
     const TOTAL = N_SEG * SUBSEG;
 
     const pts = new Array(TOTAL + 1);
@@ -194,7 +200,21 @@
     else { lenStart = 0; lenSpan = totalLen / 2; }
 
     const N_SEG = 254;
-    const SUBSEG = Math.max(1, Math.ceil(lenSpan * scale / 800));
+    // SUBSEG must be dense enough that adjacent disc-stamps overlap;
+    // otherwise small bakes show a beaded line on thin strokes. The
+    // historical formula was tuned for scale ≈ 1.6 and under-samples
+    // at smaller scales. Compute the minimum disc radius (after the
+    // 0.5-px floor) and require disc spacing ≤ ~that radius, so each
+    // stamp's disc reaches at least to the centre of the next.
+    let minWidth = Infinity;
+    for (const p of stroke) {
+      const pw = p.width == null ? 22 : p.width;
+      if (pw < minWidth) minWidth = pw;
+    }
+    const minDiscR = Math.max(0.5, minWidth * scale / 2);
+    const targetSpacing = Math.max(0.4, minDiscR * 0.9);
+    const SUBSEG = Math.max(1,
+      Math.ceil((lenSpan * scale) / (N_SEG * targetSpacing)));
     const TOTAL = N_SEG * SUBSEG;
 
     function sampleAtLength(L) {
