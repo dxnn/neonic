@@ -38,9 +38,9 @@
     cyan:      () => buildRamp([{t:0,color:hex('#03070d')},{t:.40,color:hex('#0a4a72')},{t:.72,color:hex('#3fb6e6')},{t:1,color:hex('#eaf6ff')}]),
     plasma:    () => buildRamp([{t:0,color:hex('#0d0420')},{t:.30,color:hex('#5a0c6e')},{t:.55,color:hex('#c2317a')},{t:.78,color:hex('#f08a3a')},{t:1,color:hex('#fff2cf')}]),
     rainbow:   () => buildRamp([
-      {t:0.00,color:hex('#ff2a2a')},{t:0.17,color:hex('#ff8a14')},{t:0.33,color:hex('#ffe600')},
-      {t:0.50,color:hex('#2dd24a')},{t:0.66,color:hex('#1f7bff')},{t:0.83,color:hex('#7b2dff')},
-      {t:1.00,color:hex('#ff2a2a')},
+      {t:0.00,color:hex('#1f7bff')},{t:0.17,color:hex('#7b2dff')},{t:0.34,color:hex('#ff2a2a')},
+      {t:0.50,color:hex('#ff8a14')},{t:0.67,color:hex('#ffe600')},{t:0.83,color:hex('#2dd24a')},
+      {t:1.00,color:hex('#1f7bff')},
     ]),
     rainbowCompressed: () => {
       const blue = hex('#1f7bff');
