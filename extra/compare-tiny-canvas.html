@@ -3,11 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Bake A/B: binary vs. soft-mask</title>
+  <title>Bake A/B: binary vs. soft-mask, across multiple PNGs</title>
   <style>
     body { margin: 0; padding: 24px; font: 13px ui-sans-serif, system-ui, sans-serif;
            background: #14141a; color: #e8e8ee; }
     h1 { font-weight: 600; font-size: 18px; margin: 0 0 4px; }
+    h2 { font-weight: 600; font-size: 14px; margin: 32px 0 8px;
+         color: #e8e8ee; font-family: ui-monospace, monospace; }
     .lead { color: #9fa1ad; margin: 0 0 24px; max-width: 60ch; }
     table { border-collapse: collapse; }
     th, td { padding: 14px 18px; text-align: left; vertical-align: top; }
@@ -19,42 +21,35 @@
     .info { color: #9fa1ad; font-size: 11px; font-family: ui-monospace, monospace;
             margin-top: 6px; }
     .demo canvas { display: block; width: auto; vertical-align: middle; }
-    .h32  canvas { height:  32px; }
-    .h48  canvas { height:  48px; }
-    .h64  canvas { height:  64px; }
-    .h120 canvas { height: 120px; }
-    .h240 canvas { height: 240px; }
-    .h480 canvas { height: 480px; }
+    .h32 canvas { height: 32px; }
+    .h48 canvas { height: 48px; }
+    .h64 canvas { height: 64px; }
   </style>
 </head>
 <body>
   <h1>Bake A/B: binary vs. soft-mask</h1>
   <p class="lead">
-    Same anchors, same display canvas, three different bake strategies.
-    <strong>A</strong> is today's binary bake at the legacy-quality
-    floor (480 long). <strong>B</strong> keeps the same bake size but
-    swaps to soft-mask compositing — same compute per frame, edges from
-    the mask instead of from browser oversampling. <strong>C</strong>
-    drops the bake to 200 long (mask handles AA), targeting big compute
-    savings at the same visual quality.
+    Same anchors, same display canvas, three bake strategies, three
+    source PNGs. <strong>A</strong> is today's binary bake at the
+    legacy floor (480 long). <strong>B</strong> keeps the same bake
+    size but composites through the smooth mask (same compute, edges
+    from the mask). <strong>C</strong> drops the bake to 200 long
+    with the mask still doing AA — targets compute savings at the
+    same visible quality.
   </p>
 
-  <table>
-    <thead>
-      <tr>
-        <th>CSS height</th>
-        <th>A · binary, MIN=480</th>
-        <th>B · soft mask, MIN=480</th>
-        <th>C · soft mask, MIN=200</th>
-      </tr>
-    </thead>
-    <tbody id="rows"></tbody>
-  </table>
+  <div id="tables"></div>
 
   <script src="../neonic-playback.js"></script>
   <script>
-    const HEIGHTS = [32, 48, 64, 120, 240, 480];
-    const SRC = '../logo.neonic.png';
+    const HEIGHTS = [32, 48, 64];
+    const SOURCES = [
+      { name: 'logo.neonic.png (project)',         url: '../logo.neonic.png' },
+      { name: 'logo.neonic 12.png (recent export)', url: 'logo-12.neonic.png' },
+      { name: 'emmyjs/logo.pshift.png (legacy)',   url: '/new/emmyjs/public/logo.pshift.png' },
+      { name: 'inwordsandpictures/logo.pshift.png (legacy)',
+        url: '/new/inwordsandpictures/logo.pshift.png' },
+    ];
     const MAX_BAKE_EDGE = 1024;
 
     function anchorBBox(anchors) {
@@ -66,23 +61,31 @@
       return { w: maxX - minX, h: maxY - minY };
     }
 
+    // Mirror NeonicLoader.collapseCanvasIntrinsic — set the canvas's
+    // attribute size to 1×1 before measuring so any width:auto /
+    // height:auto CSS dim follows the explicit dim instead of being
+    // inflated by the default 300:150 intrinsic.
+    function collapseCanvasIntrinsic(canvas) {
+      canvas.width = 1; canvas.height = 1;
+      void canvas.offsetHeight;
+    }
+
     function chooseScale(canvas, bbox, padding, minEdge) {
       const longBbox = Math.max(bbox.w, bbox.h);
       if (longBbox <= 0) return 1;
-      const dpr  = window.devicePixelRatio || 1;
-      const ss   = +canvas.dataset.supersample || 1;
+      const dpr = window.devicePixelRatio || 1;
+      const ss  = +canvas.dataset.supersample || 1;
       const cssLong = Math.max(canvas.clientWidth, canvas.clientHeight);
       let targetLong = ss * Math.max(minEdge, cssLong * dpr);
       if (targetLong > MAX_BAKE_EDGE) targetLong = MAX_BAKE_EDGE;
       return Math.max(0.05, (targetLong - padding * 2) / longBbox);
     }
 
-    // Mount one variant onto a canvas. `softMask` toggles the new mask
-    // compositing path; `minEdge` overrides MIN_BAKE_EDGE for this cell.
     async function mountVariant(canvas, metadata, opts) {
       const padding = metadata.padding != null ? metadata.padding : 24;
       const half = metadata.half || 'full';
       const bbox = anchorBBox(metadata.anchors);
+      collapseCanvasIntrinsic(canvas);
       const scale = chooseScale(canvas, bbox, padding, opts.minEdge);
       const baked = window.Neonic.bakeFromAnchors({
         anchors: metadata.anchors, scale, padding, half,
@@ -110,35 +113,67 @@
       return { cell, canvas: c, info, opts };
     }
 
-    async function build() {
-      const buf = await fetch(SRC).then((r) => r.arrayBuffer());
-      const { metadata } = window.NeonicPng.decode(new Uint8Array(buf));
+    const VARIANTS = [
+      { label: 'A', softMask: false, minEdge: 480 },
+      { label: 'B', softMask: true,  minEdge: 480 },
+      { label: 'C', softMask: true,  minEdge: 200 },
+    ];
 
-      const tbody = document.getElementById('rows');
-      const variants = [
-        { label: 'A',         softMask: false, minEdge: 480 },
-        { label: 'B',         softMask: true,  minEdge: 480 },
-        { label: 'C',         softMask: true,  minEdge: 200 },
-      ];
+    async function buildTable(source) {
+      const wrap = document.createElement('section');
+      const h = document.createElement('h2');
+      h.textContent = source.name + '  ·  ' + source.url;
+      wrap.appendChild(h);
+      const table = document.createElement('table');
+      table.innerHTML =
+        '<thead><tr>' +
+        '<th>CSS height</th>' +
+        '<th>A · binary, MIN=480</th>' +
+        '<th>B · soft mask, MIN=480</th>' +
+        '<th>C · soft mask, MIN=200</th>' +
+        '</tr></thead>';
+      const tbody = document.createElement('tbody');
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      document.getElementById('tables').appendChild(wrap);
+
+      let buf, metadata;
+      try {
+        buf = await fetch(source.url).then((r) => {
+          if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+          return r.arrayBuffer();
+        });
+        const decoded = window.NeonicPng.decode(new Uint8Array(buf));
+        metadata = decoded.metadata;
+        if (!metadata.anchors) throw new Error('no anchors in PNG metadata');
+      } catch (err) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 4;
+        td.style.color = '#e25c5c';
+        td.textContent = 'load failed: ' + err.message;
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        return;
+      }
 
       const slots = [];
-      for (const h of HEIGHTS) {
+      for (const ht of HEIGHTS) {
         const tr = document.createElement('tr');
         const head = document.createElement('td');
-        head.textContent = h + 'px';
+        head.textContent = ht + 'px';
         tr.appendChild(head);
-        for (const v of variants) {
-          const slot = makeCell(h, v);
+        for (const v of VARIANTS) {
+          const slot = makeCell(ht, v);
           tr.appendChild(slot.cell);
           slots.push(slot);
         }
         tbody.appendChild(tr);
       }
-      // Force a layout pass so clientWidth/clientHeight reflect CSS.
       void document.body.offsetHeight;
 
       for (const s of slots) {
-        const { eng, baked } = await mountVariant(s.canvas, metadata, s.opts);
+        const { baked } = await mountVariant(s.canvas, metadata, s.opts);
         const px = baked.width * baked.height;
         s.info.innerHTML =
           `<b>${s.opts.label}</b> · bake ${baked.width}×${baked.height} ` +
@@ -148,7 +183,9 @@
       }
     }
 
-    build();
+    (async () => {
+      for (const src of SOURCES) await buildTable(src);
+    })();
   </script>
 </body>
 </html>
