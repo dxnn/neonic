@@ -32,26 +32,55 @@
     return out;
   }
 
-  const PALETTES = {
-    greyscale: () => buildRamp([{t:0,color:hex('#0a0a0b')},{t:1,color:hex('#f5f3ec')}]),
-    sodium:    () => buildRamp([{t:0,color:hex('#1a0a02')},{t:.45,color:hex('#a5410a')},{t:.78,color:hex('#ffb24a')},{t:1,color:hex('#fff7d6')}]),
-    cyan:      () => buildRamp([{t:0,color:hex('#03070d')},{t:.40,color:hex('#0a4a72')},{t:.72,color:hex('#3fb6e6')},{t:1,color:hex('#eaf6ff')}]),
-    plasma:    () => buildRamp([{t:0,color:hex('#0d0420')},{t:.30,color:hex('#5a0c6e')},{t:.55,color:hex('#c2317a')},{t:.78,color:hex('#f08a3a')},{t:1,color:hex('#fff2cf')}]),
-    rainbow:   () => buildRamp([
-      {t:0.00,color:hex('#1f7bff')},{t:0.17,color:hex('#7b2dff')},{t:0.34,color:hex('#ff2a2a')},
-      {t:0.50,color:hex('#ff8a14')},{t:0.67,color:hex('#ffe600')},{t:0.83,color:hex('#2dd24a')},
+  // Raw stop arrays for each built-in preset. PALETTES[name]() turns
+  // these into the engine's flat Uint8Array; consumers that want the
+  // original stops (e.g. the editor's "pick a preset" seed) read
+  // PALETTE_STOPS directly so they don't end up with a re-sampled
+  // approximation.
+  const PALETTE_STOPS = {
+    greyscale: [
+      {t:0,color:hex('#0a0a0b')},{t:1,color:hex('#f5f3ec')},
+    ],
+    sodium: [
+      {t:0,color:hex('#1a0a02')},{t:.45,color:hex('#a5410a')},
+      {t:.78,color:hex('#ffb24a')},{t:1,color:hex('#fff7d6')},
+    ],
+    cyan: [
+      {t:0,color:hex('#03070d')},{t:.72,color:hex('#3fb6e6')},
+      {t:1,color:hex('#eaf6ff')},
+    ],
+    plasma: [
+      {t:0,color:hex('#0d0420')},{t:.55,color:hex('#c2317a')},
+      {t:.78,color:hex('#f08a3a')},{t:1,color:hex('#fff2cf')},
+    ],
+    rainbow: [
+      {t:0.00,color:hex('#1f7bff')},{t:0.17,color:hex('#7b2dff')},
+      {t:0.34,color:hex('#ff2a2a')},{t:0.50,color:hex('#ff8a14')},
+      {t:0.67,color:hex('#ffe600')},{t:0.83,color:hex('#2dd24a')},
       {t:1.00,color:hex('#1f7bff')},
-    ]),
-    rainbowCompressed: () => {
+    ],
+    // Compressed rainbow: long blue floor with a narrow rainbow band
+    // around t=0.5. Mirrors the regular rainbow's leading purple
+    // (blue→purple→red...) with the purple stop right before red, plus
+    // the existing purple after the band so the cycle reads symmetric.
+    rainbowCompressed: (() => {
       const blue = hex('#1f7bff');
-      return buildRamp([
+      return [
         {t:0.000,color:blue},{t:0.449,color:blue},
-        {t:0.450,color:hex('#ff2a2a')},{t:0.467,color:hex('#ff8a14')},{t:0.484,color:hex('#ffe600')},
-        {t:0.500,color:hex('#2dd24a')},{t:0.517,color:hex('#1f7bff')},{t:0.534,color:hex('#7b2dff')},
+        {t:0.4495,color:hex('#7b2dff')},
+        {t:0.450,color:hex('#ff2a2a')},{t:0.467,color:hex('#ff8a14')},
+        {t:0.484,color:hex('#ffe600')},{t:0.500,color:hex('#2dd24a')},
+        {t:0.517,color:hex('#1f7bff')},{t:0.534,color:hex('#7b2dff')},
         {t:0.550,color:blue},{t:1.000,color:blue},
-      ]);
-    },
+      ];
+    })(),
   };
+
+  const PALETTES = {};
+  for (const name of Object.keys(PALETTE_STOPS)) {
+    const stops = PALETTE_STOPS[name];
+    PALETTES[name] = () => buildRamp(stops);
+  }
 
   // ─── bake ───────────────────────────────────────────────────────────────
   // Disc-stamps an indexed bitmap (one palette slot per stroke segment)
@@ -478,5 +507,5 @@
     this._paint();
   };
 
-  root.Neonic = { bakeFromD, bakeFromStroke, bakeFromAnchors, sampleAnchors, CycleEngine, PALETTES, buildRamp, _test: { rgba, hex } };
+  root.Neonic = { bakeFromD, bakeFromStroke, bakeFromAnchors, sampleAnchors, CycleEngine, PALETTES, PALETTE_STOPS, buildRamp, _test: { rgba, hex } };
 })(window);

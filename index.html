@@ -54,12 +54,9 @@
   .brand { display:flex; align-items:center; gap: 14px; }
   .glyph {
     width: 44px; height: 44px; flex: 0 0 auto;
-    border-radius: 12px;
-    background: var(--ink);
-    padding: 4px;
-    box-shadow: 0 8px 24px rgba(27,26,23,.18), 0 1px 0 rgba(255,255,255,.06) inset;
+    border-radius: 8px; overflow: hidden;
   }
-  .glyph canvas { width: 100%; height: 100%; display: block; border-radius: 8px; }
+  .glyph canvas { width: 100%; height: 100%; display: block; }
 
   .wordmark {
     font-family: 'Bricolage Grotesque', 'Geist', sans-serif;
@@ -1525,8 +1522,10 @@ function saveCustomPresets(map) {
 }
 
 // Build a fresh stops array from a preset name.
-//   "rainbow" → samples 12 perceptually-spaced stops along PALETTES.rainbow
-//   "custom:foo" → returns the verbatim saved stops
+//   "rainbow" → the verbatim stops from Neonic.PALETTE_STOPS
+//   "custom:foo" → the verbatim saved stops from localStorage
+// In both cases the result is a fresh copy so subsequent edits don't
+// mutate the preset source.
 function buildStopsFromPreset(name) {
   if (name && name.startsWith('custom:')) {
     const customs = loadCustomPresets();
@@ -1534,34 +1533,9 @@ function buildStopsFromPreset(name) {
     if (!stored) return null;
     return stored.map(s => ({ t: s.t, color: s.color.slice() }));
   }
-  const ramp = window.Neonic.PALETTES[name];
-  if (!ramp) return null;
-  const r = ramp();           // Uint8Array(255*3): entry i at r[i*3..i*3+2]
-  const N = 255;
-  const cum = new Array(N);
-  cum[0] = 0;
-  for (let i = 1; i < N; i++) {
-    const dr = r[i*3]   - r[(i-1)*3];
-    const dg = r[i*3+1] - r[(i-1)*3+1];
-    const db = r[i*3+2] - r[(i-1)*3+2];
-    cum[i] = cum[i-1] + Math.sqrt(dr*dr + dg*dg + db*db);
-  }
-  const total = cum[N-1];
-  const target = 12;
-  const out = [{ t: 0, color: [r[0], r[1], r[2]] }];
-  if (total > 0) {
-    for (let k = 1; k < target - 1; k++) {
-      const goal = (k / (target - 1)) * total;
-      let i = 0;
-      while (i < N - 1 && cum[i] < goal) i++;
-      const t = i / (N - 1);
-      const lastT = out[out.length - 1].t;
-      if (t - lastT < 0.003) continue;
-      out.push({ t, color: [r[i*3], r[i*3+1], r[i*3+2]] });
-    }
-  }
-  out.push({ t: 1, color: [r[(N-1)*3], r[(N-1)*3+1], r[(N-1)*3+2]] });
-  return out;
+  const stops = window.Neonic.PALETTE_STOPS && window.Neonic.PALETTE_STOPS[name];
+  if (!stops) return null;
+  return stops.map(s => ({ t: s.t, color: s.color.slice() }));
 }
 
 function rgbToHex([r, g, b]) {
@@ -1613,6 +1587,11 @@ function drawDrawerRampOnto(canvas, palStops) {
   ctx.lineWidth = 1;
   ctx.strokeRect(0.5, 0.5, cssW - 1, barH - 1);
 
+  // Use --ink for the stop outline so it inverts with theme: dark stroke
+  // on light bg, light stroke on dark bg. Without this, a black stop on
+  // a black drawer canvas in dark mode disappears.
+  const inkC = getComputedStyle(document.documentElement)
+                 .getPropertyValue('--ink').trim() || '#1b1a17';
   const handleY = barH + 11;
   const sortedIdx = palStops
     .map((s, i) => ({ i, t: s.t }))
@@ -1623,7 +1602,7 @@ function drawDrawerRampOnto(canvas, palStops) {
     const x = Math.max(7, Math.min(cssW - 7, (1 - s.t) * cssW));
     const sel = i === selectedStop;
     ctx.fillStyle = `rgb(${s.color[0]},${s.color[1]},${s.color[2]})`;
-    ctx.strokeStyle = sel ? '#1f7bff' : 'rgba(0,0,0,0.7)';
+    ctx.strokeStyle = sel ? '#1f7bff' : inkC;
     ctx.lineWidth = sel ? 2 : 1;
     ctx.beginPath();
     ctx.arc(x, handleY, sel ? 8 : 5.5, 0, Math.PI * 2);
