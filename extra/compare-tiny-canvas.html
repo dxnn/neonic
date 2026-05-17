@@ -102,7 +102,6 @@
       const { scale, padding } = planBake(canvas, metadata, opts);
       const baked = window.Neonic.bakeFromAnchors({
         anchors: metadata.anchors, scale, padding, half,
-        softMask: opts.softMask,
       });
       const eng = new window.Neonic.CycleEngine(canvas, baked);
       const pal = metadata.palettes[metadata.activeIdx || 0];
@@ -127,17 +126,16 @@
     }
 
     const VARIANTS = [
-      // Soft mask, no floor, 2× oversample — bake is 2× linear / 4×
-      // pixels of C, then the GPU downsamples to display. Comparison
-      // point for "what does extra oversample buy us at the cost of
-      // 4× per-frame compute?"
-      { label: 'A', softMask: true,  minEdge: 0,   ss: 2 },
-      // Soft mask at the legacy quality floor — same compute as the
-      // original binary path, just with mask-AA. Quality reference.
-      { label: 'B', softMask: true,  minEdge: 480, ss: 1 },
-      // Soft mask, no floor, no oversample — minimal compute.
-      // Bake long edge = display × dpr exactly.
-      { label: 'C', softMask: true,  minEdge: 0,   ss: 1 },
+      // 2× oversample — bake is 2× linear / 4× pixels of C, then the
+      // GPU downsamples to display. Comparison point for "what does
+      // extra oversample buy us at the cost of 4× per-frame compute?"
+      { label: 'A', minEdge: 0,   ss: 2 },
+      // Legacy quality floor — same compute as the original binary
+      // path, just with mask-AA. Quality reference.
+      { label: 'B', minEdge: 480, ss: 1 },
+      // No floor, no oversample — minimal compute. Bake long edge =
+      // display × dpr exactly.
+      { label: 'C', minEdge: 0,   ss: 1 },
     ];
 
     async function buildTable(source) {

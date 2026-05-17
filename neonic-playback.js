@@ -60,15 +60,13 @@
   };
 
   // ─── bake ───────────────────────────────────────────────────────────────
-  // softMask (default true): keep the smooth alpha mask around so the
-  // engine can composite the cycling colors through it at paint time.
-  // That moves anti-aliasing into the bake (per-pixel fractional alpha)
-  // and means small bakes still produce smooth strokes on display. With
-  // softMask:false the indices buffer is the old binary one and all AA
-  // has to come from the browser's GPU downsample of a much bigger bake.
+  // Disc-stamps an indexed bitmap (one palette slot per stroke segment)
+  // along with a smooth alpha mask. The engine composites cycling colors
+  // through that mask (destination-in) so stroke-edge AA lives inside
+  // the bake and small bakes still produce smooth strokes on display.
   function bakeFromD(opts) {
-    const { d, scale = 1.6, padding = 24, strokeWidth = 18, half = 'first',
-            softMask = true } = opts || {};
+    const { d, scale = 1.6, padding = 24, strokeWidth = 18, half = 'first'
+          } = opts || {};
     const ns = 'http://www.w3.org/2000/svg';
     const tmp = document.createElementNS(ns, 'svg');
     tmp.style.cssText = 'position:absolute;left:-99999px';
@@ -109,7 +107,7 @@
 
     // index canvas
     const idxC = document.createElement('canvas'); idxC.width = w; idxC.height = h;
-    const ictx = idxC.getContext('2d', { willReadFrequently: true });
+    const ictx = idxC.getContext('2d');
     ictx.lineWidth = STROKE_W; ictx.lineCap = 'round'; ictx.lineJoin = 'round';
     for (let i = 0; i < N_SEG; i++) {
       const v = i + 1;
@@ -124,7 +122,7 @@
 
     // alpha mask
     const mskC = document.createElement('canvas'); mskC.width = w; mskC.height = h;
-    const mctx = mskC.getContext('2d', { willReadFrequently: true });
+    const mctx = mskC.getContext('2d');
     mctx.lineWidth = STROKE_W * 0.92; mctx.lineCap = 'round'; mctx.lineJoin = 'round';
     mctx.strokeStyle = '#fff';
     mctx.beginPath();
@@ -133,15 +131,12 @@
     mctx.stroke();
     const mskData = mctx.getImageData(0, 0, w, h).data;
 
-    // Threshold: in binary mode we drop any pixel with mask alpha < 200
-    // so the binary indices buffer has clean stroke/no-stroke pixels and
-    // browser oversampling supplies the AA. In soft-mask mode we keep
-    // any pixel the mask touched at all (≥ 1), and the per-pixel alpha
-    // in mskC stays around for the engine's destination-in composite.
-    const thresh = softMask ? 1 : 200;
+    // Any pixel the mask touched at all gets a palette index; the
+    // per-pixel alpha in mskC then provides smooth edge AA at composite
+    // time via destination-in.
     const indices = new Uint8Array(w * h);
     for (let i = 0; i < w * h; i++) {
-      if (mskData[i*4+3] < thresh) { indices[i] = 0; continue; }
+      if (mskData[i*4+3] < 1) { indices[i] = 0; continue; }
       let v = idxData[i*4]; if (v < 1) v = 1; if (v > 254) v = 254;
       indices[i] = v;
     }
@@ -160,7 +155,7 @@
     }
 
     document.body.removeChild(tmp);
-    return { width: w, height: h, indices, maskCanvas: softMask ? mskC : null };
+    return { width: w, height: h, indices, maskCanvas: mskC };
   }
 
   // ─── bake from a width-bearing stroke ───────────────────────────────────
@@ -170,8 +165,8 @@
   // panel 1 paints from the same samples. Otherwise mirrors bakeFromD's
   // mask + index pipeline.
   function bakeFromStroke(opts) {
-    const { stroke, scale = 1.6, padding = 24, half = 'first',
-            softMask = true } = opts || {};
+    const { stroke, scale = 1.6, padding = 24, half = 'first'
+          } = opts || {};
     if (!stroke || stroke.length < 2) throw new Error('Stroke has fewer than 2 points.');
 
     const cumLen = new Array(stroke.length);
@@ -248,7 +243,7 @@
     // a thinner segment, so we use discs instead.)
 
     const idxC = document.createElement('canvas'); idxC.width = w; idxC.height = h;
-    const ictx = idxC.getContext('2d', { willReadFrequently: true });
+    const ictx = idxC.getContext('2d');
     for (let i = 0; i < N_SEG; i++) {
       const v = i + 1;
       ictx.fillStyle = 'rgb(' + v + ',0,0)';
@@ -274,7 +269,7 @@
     const idxData = ictx.getImageData(0, 0, w, h).data;
 
     const mskC = document.createElement('canvas'); mskC.width = w; mskC.height = h;
-    const mctx = mskC.getContext('2d', { willReadFrequently: true });
+    const mctx = mskC.getContext('2d');
     mctx.fillStyle = '#fff';
     for (let i = 0; i <= TOTAL; i++) {
       const p = pts[i];
@@ -285,11 +280,11 @@
     }
     const mskData = mctx.getImageData(0, 0, w, h).data;
 
-    // See bakeFromD for the softMask/threshold rationale.
-    const thresh = softMask ? 1 : 200;
+    // See bakeFromD: any mask-touched pixel gets a palette index;
+    // mask alpha provides edge AA at composite time.
     const indices = new Uint8Array(w * h);
     for (let i = 0; i < w * h; i++) {
-      if (mskData[i * 4 + 3] < thresh) { indices[i] = 0; continue; }
+      if (mskData[i * 4 + 3] < 1) { indices[i] = 0; continue; }
       let v = idxData[i * 4]; if (v < 1) v = 1; if (v > 254) v = 254;
       indices[i] = v;
     }
@@ -306,7 +301,7 @@
       }
     }
 
-    return { width: w, height: h, indices, maskCanvas: softMask ? mskC : null };
+    return { width: w, height: h, indices, maskCanvas: mskC };
   }
 
   // ─── bake from editor anchors ───────────────────────────────────────────
@@ -341,10 +336,10 @@
     return out;
   }
   function bakeFromAnchors(opts) {
-    const { anchors, perSeg, scale, padding, half, softMask } = opts || {};
+    const { anchors, perSeg, scale, padding, half } = opts || {};
     return bakeFromStroke({
       stroke: sampleAnchors(anchors, perSeg),
-      scale, padding, half, softMask,
+      scale, padding, half,
     });
   }
 
@@ -374,11 +369,15 @@
     this.baseStartOff = 0;
     this.nextPalette = null;
     this.nextStartOff = -1;
-    this.offset = 0; this.speed = 40; this.reverse = false;
+    this.offset = 0; this.speed = 40;
     this.running = false; this._raf = 0; this._last = 0;
     this._boundFrame = this._frame.bind(this);
     this._renderOff = NaN;
     this._palDirty = false;
+    // Optional per-frame hook (e.g. the loader's playlist watcher).
+    // Called at the end of every _frame after paint, so a single rAF
+    // loop drives both engine and any consumer-level scheduling.
+    this.onFrame = null;
   }
   CycleEngine.prototype.setPalette = function (n) {
     this.basePalette = typeof n === 'string' ? PALETTES[n]() : n;
@@ -402,8 +401,11 @@
     this.nextStartOff = (scheduledOff != null) ? scheduledOff : this.offset;
     this._palDirty = true;
   };
+  // Speed is signed: negative values cycle the palette backward. The
+  // editor doesn't currently expose negative speeds in its UI but a
+  // consumer can pass one directly (and the loader picks up whatever
+  // sign is stored in metadata.palettes[*].speed).
   CycleEngine.prototype.setSpeed = function (s) { this.speed = s; };
-  CycleEngine.prototype.setReverse = function (r) { this.reverse = !!r; };
   CycleEngine.prototype._writePalette = function () {
     if (this.nextPalette !== null && (this.offset - this.nextStartOff) >= 254) {
       this.basePalette = this.nextPalette;
@@ -464,6 +466,7 @@
       this._writePalette();
       this._paint();
     }
+    if (this.onFrame) this.onFrame(this);
     this._raf = requestAnimationFrame(this._boundFrame);
   };
   CycleEngine.prototype.start = function () {
@@ -498,10 +501,11 @@
 //   const decoded = NeonicPng.decode(uint8Array);
 //   // → { width, height, metadata }
 //
-// Decoder also accepts the legacy 'pshift' iTXt key (pre-rename), so
-// old .pshift.png exports continue to load until they're re-saved.
-// Pre-v2 PNGs that carried an `indices` field in their metadata are
-// accepted too — the field is ignored.
+// Format versions accepted on decode:
+//   v3 — current. metadata.paddingLogical stored directly in anchor space.
+//   v2 — paddingLogical = padding / scale; loader recovers via that ratio.
+//   v1 — also carried a precomputed indices field; ignored on read.
+//   'pshift' keyword — legacy (pre-rename); decoded identically.
 //
 // To build a palette ramp from decoded stops, use Neonic.buildRamp(stops).
 
@@ -560,9 +564,11 @@
     const parts = [pngBytes.subarray(0, 8)];
     let pos = 8;
     while (pos < pngBytes.length) {
+      if (pos + 8 > pngBytes.length) throw new Error('Truncated PNG: chunk header past EOF');
       const len = readU32(pngBytes, pos);
       const type = readType(pngBytes, pos + 4);
       const total = 12 + len;
+      if (pos + total > pngBytes.length) throw new Error('Truncated PNG: chunk body past EOF');
       if (type === 'IEND') {
         parts.push(makeChunk('iTXt', makeIText(keyword, text)));
       }
@@ -595,6 +601,11 @@
   // `thinning` records the slider value at export time so import can
   // restore it; without that, anchor widths drift on re-load because
   // the formula reapplies at whatever the slider happens to be.
+  //
+  // The metadata stores `paddingLogical` (in anchor-space units)
+  // alongside the bake-pixel `padding` it was rendered with. The
+  // loader prefers paddingLogical when present so re-bakes at
+  // different scales keep the same visual margin proportion.
   async function encode(opts) {
     const { canvas, anchors,
             palettes, activeIdx, playMode,
@@ -602,15 +613,18 @@
     const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
     if (!blob) throw new Error('canvas.toBlob returned null');
     const pngBytes = new Uint8Array(await blob.arrayBuffer());
+    const paddingLogical = (scale > 0 && padding != null)
+      ? padding / scale
+      : null;
     const meta = {
-      version: 2,
+      version: 3,
       width: canvas.width,
       height: canvas.height,
       anchors,
       palettes,
       activeIdx,
       playMode,
-      strokeWidth, thinning, scale, padding, half,
+      strokeWidth, thinning, scale, padding, paddingLogical, half,
     };
     return injectIText(pngBytes, 'neonic', JSON.stringify(meta));
   }
@@ -625,10 +639,12 @@
     if (pngBytes[0] !== 0x89 || pngBytes[1] !== 0x50) throw new Error('Not a PNG');
     let pos = 8, meta = null;
     while (pos < pngBytes.length) {
+      if (pos + 8 > pngBytes.length) throw new Error('Truncated PNG: chunk header past EOF');
       const len = readU32(pngBytes, pos);
       const type = readType(pngBytes, pos + 4);
       const dataStart = pos + 8;
       const dataEnd = dataStart + len;
+      if (dataEnd > pngBytes.length) throw new Error('Truncated PNG: chunk body past EOF');
       if (type === 'iTXt') {
         let p = dataStart;
         while (p < dataEnd && pngBytes[p] !== 0) p++;
@@ -668,13 +684,16 @@
 //
 // The bake is sized to the display canvas. The engine composites
 // colors through a soft alpha mask (destination-in) so stroke-edge
-// AA lives in the bake itself — no browser oversampling needed.
+// AA lives in the bake itself — no browser oversampling needed. If
+// the canvas's CSS size changes after mount (responsive layout), the
+// loader re-bakes via ResizeObserver.
 //
 // One knob, on the canvas as a data attribute:
 //
 //   data-supersample="N"  (default 1)
 //     Multiplies the bake target. Bake long edge ≈ cssLong × dpr × N,
-//     capped at MAX_BAKE_EDGE. Useful values:
+//     capped at MAX_BAKE_EDGE. Allowed values: 1, 2, 4. Anything else
+//     falls back to 1 with a console.warn naming the bad value.
 //       1 — fast; bake matches display pixels 1:1. Best for most logos.
 //       2 — smoother; 4× the per-frame compute. Worth it for designs
 //           with very thin strokes that look brittle at ss=1.
@@ -686,7 +705,12 @@
 
 (function (root) {
   const DEFAULT_SUPERSAMPLE = 1;
-  const MAX_BAKE_EDGE = 1024;     // safety ceiling on bake's long side
+  const ALLOWED_SUPERSAMPLE = [1, 2, 4];
+  const MAX_BAKE_EDGE  = 1024;  // safety ceiling on bake's long side
+  const MIN_BAKE_DIM   = 16;    // bake long-edge floor; below this, the
+                                //   drawing is too small to render usefully
+  const MIN_BAKE_SCALE = 0.02;  // scale floor; bbox × this is a few pixels
+  const REBAKE_THRESHOLD = 0.05; // re-bake when cssLong changes by >5%
 
   function anchorBBox(anchors) {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -695,6 +719,19 @@
       if (a.y < minY) minY = a.y; if (a.y > maxY) maxY = a.y;
     }
     return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
+  }
+
+  function parseSupersample(canvas) {
+    const raw = canvas.dataset.supersample;
+    if (raw == null || raw === '') return DEFAULT_SUPERSAMPLE;
+    const n = +raw;
+    if (ALLOWED_SUPERSAMPLE.indexOf(n) === -1) {
+      console.warn(
+        'NeonicLoader: data-supersample="' + raw + '" not in [1, 2, 4]; ' +
+        'using ' + DEFAULT_SUPERSAMPLE);
+      return DEFAULT_SUPERSAMPLE;
+    }
+    return n;
   }
 
   // Without this, an embed using e.g. `height:32px; width:auto` reports
@@ -726,33 +763,38 @@
     const bbox = anchorBBox(metadata.anchors);
     const longBbox = Math.max(bbox.w, bbox.h);
 
+    // Recover logical padding from metadata. Guard against scale=0 or
+    // missing values in malformed files.
     const exportPadding = metadata.padding != null ? metadata.padding : 24;
-    const exportScale   = metadata.scale != null ? metadata.scale : 1.6;
-    const paddingLogical = exportPadding / exportScale;
+    const exportScale   = metadata.scale > 0 ? metadata.scale : 1.6;
+    const paddingLogical = metadata.paddingLogical != null
+      ? metadata.paddingLogical
+      : exportPadding / exportScale;
 
     const dpr = root.devicePixelRatio || 1;
-    const ss  = +canvas.dataset.supersample || DEFAULT_SUPERSAMPLE;
+    const ss  = parseSupersample(canvas);
     const cssW = canvas.clientWidth  || canvas.width  || 320;
     const cssH = canvas.clientHeight || canvas.height || 320;
     const cssLong = Math.max(cssW, cssH);
 
     let targetLong = ss * cssLong * dpr;
     if (targetLong > MAX_BAKE_EDGE) targetLong = MAX_BAKE_EDGE;
-    if (targetLong < 16) targetLong = 16;
+    if (targetLong < MIN_BAKE_DIM)  targetLong = MIN_BAKE_DIM;
 
     const denom = Math.max(1, longBbox + 2 * paddingLogical);
-    const scale = Math.max(0.02, targetLong / denom);
+    const scale = Math.max(MIN_BAKE_SCALE, targetLong / denom);
     const padding = Math.max(1, Math.round(paddingLogical * scale));
-    return { scale, padding };
+    return { scale, padding, cssLong };
   }
 
   function bakeForCanvas(canvas, metadata) {
     const half = metadata.half || 'full';
-    const { scale, padding } = planBake(canvas, metadata);
-    return root.Neonic.bakeFromAnchors({
+    const { scale, padding, cssLong } = planBake(canvas, metadata);
+    const baked = root.Neonic.bakeFromAnchors({
       anchors: metadata.anchors,
       scale, padding, half,
     });
+    return { baked, cssLong };
   }
 
   // If the canvas hasn't been laid out yet, clientWidth/Height is 0
@@ -765,20 +807,52 @@
     return new Promise((resolve) => requestAnimationFrame(() => resolve()));
   }
 
+  // Re-bake when the canvas's CSS dims change by more than ~5%. The
+  // observer also fires after the bake step itself sets canvas.width
+  // (because that changes the canvas's intrinsic, which feeds the
+  // auto CSS dim) — the threshold check prevents that triggering an
+  // infinite rebake loop. Detached canvases stop being observed
+  // automatically; we also clean up on engine.dispose().
+  function attachResizeObserver(canvas, ctx) {
+    if (typeof root.ResizeObserver === 'undefined') return null;
+    const obs = new root.ResizeObserver(() => {
+      if (!canvas.isConnected || ctx.disposed) return;
+      const cssLong = Math.max(canvas.clientWidth, canvas.clientHeight);
+      if (!cssLong) return;
+      const last = ctx.lastCssLong || 1;
+      const change = Math.abs(cssLong - last) / last;
+      if (change < REBAKE_THRESHOLD) return;
+      collapseCanvasIntrinsic(canvas);
+      const { baked, cssLong: newCssLong } = bakeForCanvas(canvas, ctx.metadata);
+      ctx.lastCssLong = newCssLong;
+      ctx.eng.baked = baked;
+      ctx.eng.maskCanvas = baked.maskCanvas || null;
+      canvas.width = baked.width; canvas.height = baked.height;
+      ctx.eng.image = ctx.eng.ctx.createImageData(baked.width, baked.height);
+      ctx.eng.data32 = new Uint32Array(ctx.eng.image.data.buffer);
+      ctx.eng._palDirty = true;  // force a repaint at the new size
+    });
+    obs.observe(canvas);
+    return obs;
+  }
+
   async function mount(canvas, src) {
     src = src || canvas.dataset.src;
     const buf = await fetch(src).then((r) => {
       if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
       return r.arrayBuffer();
     });
-    const { metadata } = root.NeonicPng.decode(new Uint8Array(buf));
+    if (!canvas.isConnected) return null;  // detached mid-fetch; bail
 
+    const { metadata } = root.NeonicPng.decode(new Uint8Array(buf));
     if (!metadata.anchors || metadata.anchors.length < 2) {
       throw new Error('NEONIC PNG is missing anchors');
     }
     await waitForLayout(canvas);
+    if (!canvas.isConnected) return null;
+
     collapseCanvasIntrinsic(canvas);
-    const baked = bakeForCanvas(canvas, metadata);
+    const { baked, cssLong: lastCssLong } = bakeForCanvas(canvas, metadata);
 
     const eng = new root.Neonic.CycleEngine(canvas, baked);
     const palettes = metadata.palettes;
@@ -792,22 +866,21 @@
     function applyPalette(i) {
       const p = palettes[i];
       eng.setPalette(root.Neonic.buildRamp(p.stops));
-      eng.setSpeed(Math.abs(p.speed));
+      eng.setSpeed(p.speed);  // sign preserved: negative = cycle backward
     }
     applyPalette(curIdx);
-    eng.start();
 
-    if (palettes.length < 2) return eng;
-
-    function tick() {
-      if (eng.running) {
+    // Playlist watcher runs inside the engine's _frame, so there's only
+    // one rAF loop and eng.stop() halts everything.
+    if (palettes.length > 1) {
+      eng.onFrame = function () {
         if (eng.nextPalette !== null) {
-          // Tween speed across the 254-tick feed-in.
+          // Tween speed across the 254-tick feed-in. Sign-preserving.
           const tFrac = Math.max(0, Math.min(1,
             (eng.offset - eng.nextStartOff) / 254));
           const s1 = palettes[curIdx].speed;
           const s2 = palettes[pendingNext].speed;
-          eng.setSpeed(Math.abs(s1 + (s2 - s1) * tFrac));
+          eng.setSpeed(s1 + (s2 - s1) * tFrac);
         } else if (pendingNext >= 0) {
           curIdx = pendingNext; pendingNext = -1;
           applyPalette(curIdx);
@@ -824,10 +897,24 @@
             root.Neonic.buildRamp(palettes[next].stops),
             eng.baseStartOff + target * 255);
         }
-      }
-      requestAnimationFrame(tick);
+      };
     }
-    requestAnimationFrame(tick);
+
+    const ctx = { eng, metadata, lastCssLong, disposed: false, observer: null };
+    ctx.observer = attachResizeObserver(canvas, ctx);
+
+    // Augment eng with a dispose() that releases observer + breaks ref
+    // cycles. eng.stop() pauses the rAF; dispose() makes the cleanup
+    // permanent.
+    eng.dispose = function () {
+      ctx.disposed = true;
+      eng.stop();
+      if (ctx.observer) { ctx.observer.disconnect(); ctx.observer = null; }
+      eng.onFrame = null;
+      eng.maskCanvas = null;
+    };
+
+    eng.start();
     return eng;
   }
 
