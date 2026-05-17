@@ -60,8 +60,15 @@
   };
 
   // ─── bake ───────────────────────────────────────────────────────────────
+  // softMask (default true): keep the smooth alpha mask around so the
+  // engine can composite the cycling colors through it at paint time.
+  // That moves anti-aliasing into the bake (per-pixel fractional alpha)
+  // and means small bakes still produce smooth strokes on display. With
+  // softMask:false the indices buffer is the old binary one and all AA
+  // has to come from the browser's GPU downsample of a much bigger bake.
   function bakeFromD(opts) {
-    const { d, scale = 1.6, padding = 24, strokeWidth = 18, half = 'first' } = opts || {};
+    const { d, scale = 1.6, padding = 24, strokeWidth = 18, half = 'first',
+            softMask = true } = opts || {};
     const ns = 'http://www.w3.org/2000/svg';
     const tmp = document.createElementNS(ns, 'svg');
     tmp.style.cssText = 'position:absolute;left:-99999px';
@@ -120,9 +127,15 @@
     mctx.stroke();
     const mskData = mctx.getImageData(0, 0, w, h).data;
 
+    // Threshold: in binary mode we drop any pixel with mask alpha < 200
+    // so the binary indices buffer has clean stroke/no-stroke pixels and
+    // browser oversampling supplies the AA. In soft-mask mode we keep
+    // any pixel the mask touched at all (≥ 1), and the per-pixel alpha
+    // in mskC stays around for the engine's destination-in composite.
+    const thresh = softMask ? 1 : 200;
     const indices = new Uint8Array(w * h);
     for (let i = 0; i < w * h; i++) {
-      if (mskData[i*4+3] < 200) { indices[i] = 0; continue; }
+      if (mskData[i*4+3] < thresh) { indices[i] = 0; continue; }
       let v = idxData[i*4]; if (v < 1) v = 1; if (v > 254) v = 254;
       indices[i] = v;
     }
@@ -141,7 +154,7 @@
     }
 
     document.body.removeChild(tmp);
-    return { width: w, height: h, indices };
+    return { width: w, height: h, indices, maskCanvas: softMask ? mskC : null };
   }
 
   // ─── bake from a width-bearing stroke ───────────────────────────────────
@@ -151,7 +164,8 @@
   // panel 1 paints from the same samples. Otherwise mirrors bakeFromD's
   // mask + index pipeline.
   function bakeFromStroke(opts) {
-    const { stroke, scale = 1.6, padding = 24, half = 'first' } = opts || {};
+    const { stroke, scale = 1.6, padding = 24, half = 'first',
+            softMask = true } = opts || {};
     if (!stroke || stroke.length < 2) throw new Error('Stroke has fewer than 2 points.');
 
     const cumLen = new Array(stroke.length);
@@ -251,9 +265,11 @@
     }
     const mskData = mctx.getImageData(0, 0, w, h).data;
 
+    // See bakeFromD for the softMask/threshold rationale.
+    const thresh = softMask ? 1 : 200;
     const indices = new Uint8Array(w * h);
     for (let i = 0; i < w * h; i++) {
-      if (mskData[i * 4 + 3] < 200) { indices[i] = 0; continue; }
+      if (mskData[i * 4 + 3] < thresh) { indices[i] = 0; continue; }
       let v = idxData[i * 4]; if (v < 1) v = 1; if (v > 254) v = 254;
       indices[i] = v;
     }
@@ -270,7 +286,7 @@
       }
     }
 
-    return { width: w, height: h, indices };
+    return { width: w, height: h, indices, maskCanvas: softMask ? mskC : null };
   }
 
   // ─── bake from editor anchors ───────────────────────────────────────────
@@ -305,10 +321,10 @@
     return out;
   }
   function bakeFromAnchors(opts) {
-    const { anchors, perSeg, scale, padding, half } = opts || {};
+    const { anchors, perSeg, scale, padding, half, softMask } = opts || {};
     return bakeFromStroke({
       stroke: sampleAnchors(anchors, perSeg),
-      scale, padding, half,
+      scale, padding, half, softMask,
     });
   }
 
@@ -330,6 +346,10 @@
     this.image = this.ctx.createImageData(baked.width, baked.height);
     this.data32 = new Uint32Array(this.image.data.buffer);
     this.palette = new Uint32Array(256);
+    // Optional smooth-alpha mask. When present the painter composites
+    // cycling colors through it (destination-in) to get anti-aliased
+    // stroke edges from the bake instead of from browser oversampling.
+    this.maskCanvas = baked.maskCanvas || null;
     this.basePalette = PALETTES.greyscale();
     this.baseStartOff = 0;
     this.nextPalette = null;
@@ -397,6 +417,16 @@
     const data32 = this.data32, idx = this.baked.indices, pal = this.palette, n = idx.length;
     for (let i = 0; i < n; i++) data32[i] = pal[idx[i]];
     this.ctx.putImageData(this.image, 0, 0);
+    if (this.maskCanvas) {
+      // putImageData laid down opaque cycling colors on stroke pixels
+      // (and transparent on background). drawImage with destination-in
+      // keeps those colors but clamps each pixel's alpha to the smooth
+      // mask alpha — so edges get fractional alpha for free, without
+      // per-pixel JS blending.
+      this.ctx.globalCompositeOperation = 'destination-in';
+      this.ctx.drawImage(this.maskCanvas, 0, 0);
+      this.ctx.globalCompositeOperation = 'source-over';
+    }
   };
   CycleEngine.prototype._frame = function (now) {
     if (!this.running) return;
@@ -614,25 +644,25 @@
 // Or call NeonicLoader.mount(canvas) directly. Returns the CycleEngine.
 //
 // The loader re-bakes from the anchors stored in the PNG's metadata.
-// The bake's indices buffer is binary (no partial alpha at stroke
-// edges) so smooth-looking strokes at display time require ~8-16
-// bake pixels per display pixel for the browser's GPU sampler to
-// anti-alias against. To guarantee that, the bake's long edge is
-// floored at MIN_BAKE_EDGE — even a 32-px CSS canvas gets a ~480-px
-// backing store, so its visual quality matches the historical
-// "always bake at scale 1.6, let the browser downsample" approach.
-// For canvases bigger than the floor the bake follows display size
-// (× devicePixelRatio × supersample) so they aren't a blurry
-// upscale. MAX_BAKE_EDGE caps the long edge so a huge canvas can't
-// runaway-grow per-frame compute.
+// The engine paints through a smooth alpha mask (composited via
+// destination-in) so stroke-edge anti-aliasing lives inside the bake
+// itself — we no longer need huge browser-oversampling to get clean
+// edges. That lets us bake at roughly display-size + a modest floor.
 //
-// data-supersample="N"  scales BOTH the floor and the dynamic
-//   target. Default 1 gives legacy quality. Raise to 2 to chase
-//   extra smoothness; drop below 1 to trade quality for compute.
+// MIN_BAKE_EDGE: never bake smaller than this on the long side, so
+//   thin strokes still have 2+ pixels of material in the bake. Below
+//   this, the mask gradient gets too narrow to render usefully.
+// MAX_BAKE_EDGE: safety cap so a huge canvas can't runaway-grow
+//   per-frame compute.
+//
+// data-supersample="N" on the canvas scales BOTH the floor and the
+//   dynamic display-driven target. Default 1 is plenty with the mask
+//   path; raise it to chase extra smoothness, drop below 1 to trade
+//   quality for compute.
 
 (function (root) {
   const DEFAULT_SUPERSAMPLE = 1;
-  const MIN_BAKE_EDGE = 480;      // legacy-comparable quality floor
+  const MIN_BAKE_EDGE = 200;      // mask handles AA; floor is just for stroke legibility
   const MAX_BAKE_EDGE = 1024;     // safety ceiling on bake's long side
 
   function anchorBBox(anchors) {

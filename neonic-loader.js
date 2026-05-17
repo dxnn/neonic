@@ -9,25 +9,25 @@
 // Or call NeonicLoader.mount(canvas) directly. Returns the CycleEngine.
 //
 // The loader re-bakes from the anchors stored in the PNG's metadata.
-// The bake's indices buffer is binary (no partial alpha at stroke
-// edges) so smooth-looking strokes at display time require ~8-16
-// bake pixels per display pixel for the browser's GPU sampler to
-// anti-alias against. To guarantee that, the bake's long edge is
-// floored at MIN_BAKE_EDGE — even a 32-px CSS canvas gets a ~480-px
-// backing store, so its visual quality matches the historical
-// "always bake at scale 1.6, let the browser downsample" approach.
-// For canvases bigger than the floor the bake follows display size
-// (× devicePixelRatio × supersample) so they aren't a blurry
-// upscale. MAX_BAKE_EDGE caps the long edge so a huge canvas can't
-// runaway-grow per-frame compute.
+// The engine paints through a smooth alpha mask (composited via
+// destination-in) so stroke-edge anti-aliasing lives inside the bake
+// itself — we no longer need huge browser-oversampling to get clean
+// edges. That lets us bake at roughly display-size + a modest floor.
 //
-// data-supersample="N"  scales BOTH the floor and the dynamic
-//   target. Default 1 gives legacy quality. Raise to 2 to chase
-//   extra smoothness; drop below 1 to trade quality for compute.
+// MIN_BAKE_EDGE: never bake smaller than this on the long side, so
+//   thin strokes still have 2+ pixels of material in the bake. Below
+//   this, the mask gradient gets too narrow to render usefully.
+// MAX_BAKE_EDGE: safety cap so a huge canvas can't runaway-grow
+//   per-frame compute.
+//
+// data-supersample="N" on the canvas scales BOTH the floor and the
+//   dynamic display-driven target. Default 1 is plenty with the mask
+//   path; raise it to chase extra smoothness, drop below 1 to trade
+//   quality for compute.
 
 (function (root) {
   const DEFAULT_SUPERSAMPLE = 1;
-  const MIN_BAKE_EDGE = 480;      // legacy-comparable quality floor
+  const MIN_BAKE_EDGE = 200;      // mask handles AA; floor is just for stroke legibility
   const MAX_BAKE_EDGE = 1024;     // safety ceiling on bake's long side
 
   function anchorBBox(anchors) {
