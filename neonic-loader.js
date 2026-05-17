@@ -43,6 +43,11 @@
   //   max(MIN_BAKE_EDGE × ss, displayLong × dpr × ss),
   // then clamped to MAX_BAKE_EDGE. ss multiplies both terms so it's
   // a single "more or less quality" knob across all canvas sizes.
+  //
+  // Caller MUST have already collapsed the canvas's intrinsic aspect
+  // via collapseCanvasIntrinsic() — otherwise width:auto / height:auto
+  // dims inflate via the default 300:150 intrinsic and the bake gets
+  // wildly oversized along the auto axis.
   function chooseBakeScale(canvas, bbox, padding) {
     const longBbox = Math.max(bbox.w, bbox.h);
     if (longBbox <= 0) return 1;
@@ -58,6 +63,17 @@
 
     const scale = (targetLong - padding * 2) / longBbox;
     return Math.max(0.05, scale);
+  }
+
+  // Without this, an embed using e.g. `height:32px; width:auto` reports
+  // a pre-mount clientWidth of ~64 — the auto dim derives from the
+  // canvas's default 300×150 intrinsic aspect (2:1), inflating the
+  // measurement. Setting the attribute size to 1×1 collapses the
+  // intrinsic to 1:1, so the auto dim now equals the explicit dim.
+  // The bake step will overwrite canvas.width/height afterward.
+  function collapseCanvasIntrinsic(canvas) {
+    canvas.width = 1; canvas.height = 1;
+    void canvas.offsetHeight;  // force a sync reflow
   }
 
   function bakeForCanvas(canvas, metadata) {
@@ -93,6 +109,7 @@
       throw new Error('NEONIC PNG is missing anchors');
     }
     await waitForLayout(canvas);
+    collapseCanvasIntrinsic(canvas);
     const baked = bakeForCanvas(canvas, metadata);
 
     const eng = new root.Neonic.CycleEngine(canvas, baked);
