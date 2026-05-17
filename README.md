@@ -19,17 +19,36 @@ player and it animates.
 <script>NeonicLoader.mountAll('.logo-cycle');</script>
 ```
 
-`neonic-playback.js` is a single ~27 KB file with no dependencies. If
-the PNG has more than one palette baked into it, the bundled loader
-crossfades through them automatically.
+`neonic-playback.js` is a single ~35 KB file with no dependencies. Size
+the canvas with CSS — width, height, or both. The runtime re-bakes the
+animation at the canvas's actual display resolution, so a tiny embed
+pays tiny per-frame compute. If the PNG has more than one palette
+baked into it, the loader crossfades through them automatically.
+
+### Knob: supersample
+
+The one tunable, set as a `data-` attribute on the canvas:
+
+```html
+<canvas class="logo-cycle" data-src="logo.neonic.png"
+        data-supersample="2"></canvas>
+```
+
+| Value | Per-frame cost | When to use |
+|-------|---------------|-------------|
+| `1` (default) | baseline | almost everything; bake matches display pixels 1:1 |
+| `2` | 4× | designs with very thin strokes that look brittle at ss=1 |
+| `4` | 16× | rarely needed; hits the internal max bake size quickly on retina |
+
+That's the entire embedder surface. No other attributes, no JS config.
 
 ## Draw a logo
 
-Open `neonic.html` in a browser:
+Open `index.html` in a browser:
 
 ```
 python3 -m http.server 8000
-# visit http://localhost:8000/neonic.html
+# visit http://localhost:8000/index.html
 ```
 
 The tool has four panels:
@@ -50,17 +69,16 @@ bake and the full palette playlist.
 
 | File | Role |
 |---|---|
-| `neonic.html` | The drawing tool |
+| `index.html` | The drawing tool |
 | `neonic-playback.js` | Bundled playback runtime — what consumers ship |
-| `logo-engine-standalone.js` | Engine: `CycleEngine`, `buildRamp`, `bakeFromD`, `bakeFromStroke` |
+| `logo-engine-standalone.js` | Engine: `CycleEngine`, `buildRamp`, `bakeFromAnchors`, `bakeFromStroke`, `bakeFromD` |
 | `neonic-png.js` | `.neonic.png` codec (iTXt chunk read/write) |
-| `neonic-loader.js` | Playlist scheduler + crossfade controller |
+| `neonic-loader.js` | Mount + display-size adaptive bake + palette playlist crossfader |
 | `build-playback.js` | Concatenates the three runtime files into the bundle |
 | `perfect-freehand.mjs` | Vendored stroke renderer (Steve Ruiz, MIT) |
 | `logo.neonic.png` | Sample logo |
-| `logo-embed.html` | Embed demo: navbar mark + size comparisons |
 | `tests/engine.test.js` | Node test suite — 22 tests, no browser needed |
-| `extra/` | Junk drawer — superseded files, spare PNG samples; gitignored |
+| `extra/` | Junk drawer — embed demos, A/B compare page, spare samples; gitignored |
 
 ## Development
 

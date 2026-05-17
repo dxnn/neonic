@@ -1,18 +1,21 @@
 // neonic-png.js
 // Encode / decode .neonic.png — a PNG that's both a normal RGBA preview
-// AND carries the precomputed palette-cycle bake (indices buffer +
-// editable anchors + palette stops + speed) in an iTXt chunk keyed
-// 'neonic'.
+// AND carries the editable anchors + palette stops + speed in an iTXt
+// chunk keyed 'neonic'. The playback engine reconstructs the bake from
+// the anchors at the consumer's display resolution, so no pre-rendered
+// indices buffer ships in the file.
 //
 // Usage:
-//   const bytes = await NeonicPng.encode({ canvas, indices, ...meta });
+//   const bytes = await NeonicPng.encode({ canvas, anchors, ...meta });
 //   // bytes is a Uint8Array; Blob it and download.
 //
 //   const decoded = NeonicPng.decode(uint8Array);
-//   // → { width, height, indices, metadata }
+//   // → { width, height, metadata }
 //
 // Decoder also accepts the legacy 'pshift' iTXt key (pre-rename), so
 // old .pshift.png exports continue to load until they're re-saved.
+// Pre-v2 PNGs that carried an `indices` field in their metadata are
+// accepted too — the field is ignored.
 //
 // To build a palette ramp from decoded stops, use Neonic.buildRamp(stops).
 

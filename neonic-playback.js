@@ -486,19 +486,22 @@
 
 // neonic-png.js
 // Encode / decode .neonic.png — a PNG that's both a normal RGBA preview
-// AND carries the precomputed palette-cycle bake (indices buffer +
-// editable anchors + palette stops + speed) in an iTXt chunk keyed
-// 'neonic'.
+// AND carries the editable anchors + palette stops + speed in an iTXt
+// chunk keyed 'neonic'. The playback engine reconstructs the bake from
+// the anchors at the consumer's display resolution, so no pre-rendered
+// indices buffer ships in the file.
 //
 // Usage:
-//   const bytes = await NeonicPng.encode({ canvas, indices, ...meta });
+//   const bytes = await NeonicPng.encode({ canvas, anchors, ...meta });
 //   // bytes is a Uint8Array; Blob it and download.
 //
 //   const decoded = NeonicPng.decode(uint8Array);
-//   // → { width, height, indices, metadata }
+//   // → { width, height, metadata }
 //
 // Decoder also accepts the legacy 'pshift' iTXt key (pre-rename), so
 // old .pshift.png exports continue to load until they're re-saved.
+// Pre-v2 PNGs that carried an `indices` field in their metadata are
+// accepted too — the field is ignored.
 //
 // To build a palette ramp from decoded stops, use Neonic.buildRamp(stops).
 
@@ -663,19 +666,23 @@
 //
 // Or call NeonicLoader.mount(canvas) directly. Returns the CycleEngine.
 //
-// The loader re-bakes from the anchors stored in the PNG's metadata.
-// The engine paints through a smooth alpha mask (composited via
-// destination-in) so stroke-edge anti-aliasing lives inside the bake
-// itself — no browser oversampling needed for clean edges. That lets
-// the bake match the display canvas exactly: bake.long ≈ cssLong ×
-// devicePixelRatio × supersample.
+// The bake is sized to the display canvas. The engine composites
+// colors through a soft alpha mask (destination-in) so stroke-edge
+// AA lives in the bake itself — no browser oversampling needed.
 //
-// data-supersample="N" on the canvas multiplies the display target.
-//   Default 1. Raise to chase extra smoothness on tiny displays;
-//   drop below 1 to trade quality for compute.
+// One knob, on the canvas as a data attribute:
 //
-// MAX_BAKE_EDGE caps the long edge so a huge canvas can't runaway-grow
-// per-frame compute.
+//   data-supersample="N"  (default 1)
+//     Multiplies the bake target. Bake long edge ≈ cssLong × dpr × N,
+//     capped at MAX_BAKE_EDGE. Useful values:
+//       1 — fast; bake matches display pixels 1:1. Best for most logos.
+//       2 — smoother; 4× the per-frame compute. Worth it for designs
+//           with very thin strokes that look brittle at ss=1.
+//       4 — smoothest, rarely needed; 16× the per-frame compute.
+//           Hits the MAX_BAKE_EDGE cap quickly on retina.
+//
+// MAX_BAKE_EDGE is an internal safety ceiling so a huge canvas can't
+// runaway-grow per-frame compute. Not user-tunable.
 
 (function (root) {
   const DEFAULT_SUPERSAMPLE = 1;
