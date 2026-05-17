@@ -1763,21 +1763,6 @@ function addToPlaylist() {
   setActive(playlist.length - 1);
 }
 
-function duplicatePalette(idx) {
-  if (idx < 0 || idx >= playlist.length) return;
-  const src = playlist[idx];
-  const copy = {
-    stops: src.stops.map(s => ({ t: s.t, color: s.color.slice() })),
-    speed: src.speed,
-    cycles: src.cycles,
-    presetName: src.presetName,
-  };
-  playlist.splice(idx + 1, 0, copy);
-  if (displayedIdx > idx) displayedIdx++;
-  renderPlaylist();
-  setActive(idx + 1);
-}
-
 function removePlaylistItem(idx) {
   if (idx < 0 || idx >= playlist.length) return;
   if (playlist.length <= 1) return;
@@ -2043,16 +2028,10 @@ function renderPlaylist() {
       }
     });
 
-    const dupBtn = document.createElement('button');
-    dupBtn.className = 'ghost';
-    dupBtn.textContent = '⎘ duplicate';
-    dupBtn.addEventListener('click', () => duplicatePalette(i));
-
     presetRow.appendChild(nameIn);
     presetRow.appendChild(saveBtn);
     presetRow.appendChild(presetSel);
     presetRow.appendChild(switchBtn);
-    presetRow.appendChild(dupBtn);
     inner.appendChild(presetRow);
 
     // Gradient bar.
