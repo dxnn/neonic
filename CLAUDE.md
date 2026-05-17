@@ -70,13 +70,32 @@ putImageData → `globalCompositeOperation='destination-in'` →
 drawImage(mask), so AA edges come from the mask, not from oversample.
 
 Embedder surface (the only knob):
-- `data-supersample="N"` on the canvas. Default 1. Useful values 1, 2, 4.
+- `data-supersample="N"` on the canvas. Default 1. Allowed values
+  1, 2, 4 — anything else falls back to 1 with a console.warn.
+
+Engine API (consumers calling Neonic.CycleEngine directly):
+- `new CycleEngine(canvas, baked)` — `baked` may include `maskCanvas`
+  for soft-mask compositing.
+- `setPalette(ramp)`, `replacePalette(ramp)`, `transitionTo(ramp, off)`.
+- `setSpeed(s)` — sign is preserved; negative cycles backward.
+  (Editor doesn't expose negative speeds in UI yet.)
+- `start()`, `stop()`, `render()`.
+- `onFrame` — assign a callback to run inside the engine's rAF; the
+  loader's playlist watcher uses this so there's only one rAF loop.
+- `dispose()` — added by the loader after mount; releases the
+  ResizeObserver, clears onFrame and maskCanvas refs, calls stop().
+
+Loader behaviour:
+- Re-bakes via ResizeObserver when CSS long edge changes by >5%.
+- Bails (returns null) if the canvas is detached before bake.
+- Reads `metadata.paddingLogical` when present (v3 PNGs), falls back
+  to `padding / scale` (v2 and earlier).
 
 Internal knobs (not user-facing):
 - `MAX_BAKE_EDGE = 1024` — safety ceiling on bake long edge.
-- `softMask: true` default in `bakeFromStroke`/`bakeFromAnchors`/`bakeFromD`.
-  False would keep the legacy binary bake; nothing in-tree uses false
-  except the A/B compare page.
+- `MIN_BAKE_DIM = 16`, `MIN_BAKE_SCALE = 0.02` — floors for the
+  degenerate "huge bbox or zero target" cases.
+- `REBAKE_THRESHOLD = 0.05` — minimum CSS change to trigger a re-bake.
 
 Per-frame compute on the project logo at 32px CSS height, retina:
 - Pre-work (binary, fixed 480-long bake): ~210k px/frame.
