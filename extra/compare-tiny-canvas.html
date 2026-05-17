@@ -31,14 +31,13 @@
 <body>
   <h1>Bake A/B: binary vs. soft-mask</h1>
   <p class="lead">
-    Same anchors, same display canvas, three bake strategies, three
-    source PNGs. <strong>A</strong> is today's binary bake at the
-    legacy floor (480 long). <strong>B</strong> keeps the same bake
-    size but composites through the smooth mask (same compute, edges
-    from the mask). <strong>C</strong> drops the floor entirely —
-    bake's long edge equals display × dpr × ss exactly, mask handles
-    AA. Padding scales with the bake so the drawing fills the canvas
-    the same way in all three columns.
+    Same anchors, same display canvas, three soft-mask bake strategies
+    across four source PNGs. <strong>A</strong> bakes at display × dpr
+    × 2 (4× the pixels of C) and relies on GPU downsampling for extra
+    smoothness. <strong>B</strong> bakes at the legacy quality floor
+    (480 long) — same per-frame compute as the original binary path,
+    just with mask AA. <strong>C</strong> drops the floor entirely:
+    bake's long edge equals display × dpr × 1 exactly.
   </p>
 
   <div id="tables"></div>
@@ -86,7 +85,7 @@
       const paddingLogical = exportPad / exportScale;
 
       const dpr = window.devicePixelRatio || 1;
-      const ss = +canvas.dataset.supersample || 1;
+      const ss = opts.ss != null ? opts.ss : (+canvas.dataset.supersample || 1);
       const cssLong = Math.max(canvas.clientWidth, canvas.clientHeight);
       let targetLong = ss * Math.max(opts.minEdge, cssLong * dpr);
       if (targetLong > MAX_BAKE_EDGE) targetLong = MAX_BAKE_EDGE;
@@ -128,9 +127,17 @@
     }
 
     const VARIANTS = [
-      { label: 'A', softMask: false, minEdge: 480 },
-      { label: 'B', softMask: true,  minEdge: 480 },
-      { label: 'C', softMask: true,  minEdge: 0   },
+      // Soft mask, no floor, 2× oversample — bake is 2× linear / 4×
+      // pixels of C, then the GPU downsamples to display. Comparison
+      // point for "what does extra oversample buy us at the cost of
+      // 4× per-frame compute?"
+      { label: 'A', softMask: true,  minEdge: 0,   ss: 2 },
+      // Soft mask at the legacy quality floor — same compute as the
+      // original binary path, just with mask-AA. Quality reference.
+      { label: 'B', softMask: true,  minEdge: 480, ss: 1 },
+      // Soft mask, no floor, no oversample — minimal compute.
+      // Bake long edge = display × dpr exactly.
+      { label: 'C', softMask: true,  minEdge: 0,   ss: 1 },
     ];
 
     async function buildTable(source) {
@@ -142,7 +149,7 @@
       table.innerHTML =
         '<thead><tr>' +
         '<th>CSS height</th>' +
-        '<th>A · binary, MIN=480</th>' +
+        '<th>A · soft mask, no floor, ss=2</th>' +
         '<th>B · soft mask, MIN=480</th>' +
         '<th>C · soft mask, no floor</th>' +
         '</tr></thead>';
