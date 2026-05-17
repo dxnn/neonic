@@ -1156,7 +1156,7 @@ function rebake() {
 
   const prev = engine
     ? { offset: engine.offset, baseStartOff: engine.baseStartOff,
-        speed: engine.speed, reverse: engine.reverse, running: engine.running }
+        speed: engine.speed, running: engine.running }
     : null;
   if (engine) engine.stop();
 
@@ -1177,12 +1177,10 @@ function rebake() {
     engine.offset = prev.offset;
     engine.baseStartOff = prev.baseStartOff;
     engine.setSpeed(prev.speed);
-    engine.setReverse(prev.reverse);
     if (prev.running) engine.start();
   } else {
     const seedEntry = (displayedIdx >= 0) ? playlist[displayedIdx] : null;
     engine.setSpeed(Math.abs(seedEntry?.speed ?? 60));
-    engine.setReverse(true);
     engine.start();
   }
   bakeMeta.textContent = `${baked.width}×${baked.height} · ${(baked.indices.byteLength/1024).toFixed(1)} KB`;
