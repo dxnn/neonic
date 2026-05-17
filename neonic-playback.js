@@ -646,23 +646,19 @@
 // The loader re-bakes from the anchors stored in the PNG's metadata.
 // The engine paints through a smooth alpha mask (composited via
 // destination-in) so stroke-edge anti-aliasing lives inside the bake
-// itself — we no longer need huge browser-oversampling to get clean
-// edges. That lets us bake at roughly display-size + a modest floor.
+// itself — no browser oversampling needed for clean edges. That lets
+// the bake match the display canvas exactly: bake.long ≈ cssLong ×
+// devicePixelRatio × supersample.
 //
-// MIN_BAKE_EDGE: never bake smaller than this on the long side, so
-//   thin strokes still have 2+ pixels of material in the bake. Below
-//   this, the mask gradient gets too narrow to render usefully.
-// MAX_BAKE_EDGE: safety cap so a huge canvas can't runaway-grow
-//   per-frame compute.
+// data-supersample="N" on the canvas multiplies the display target.
+//   Default 1. Raise to chase extra smoothness on tiny displays;
+//   drop below 1 to trade quality for compute.
 //
-// data-supersample="N" on the canvas scales BOTH the floor and the
-//   dynamic display-driven target. Default 1 is plenty with the mask
-//   path; raise it to chase extra smoothness, drop below 1 to trade
-//   quality for compute.
+// MAX_BAKE_EDGE caps the long edge so a huge canvas can't runaway-grow
+// per-frame compute.
 
 (function (root) {
   const DEFAULT_SUPERSAMPLE = 1;
-  const MIN_BAKE_EDGE = 200;      // mask handles AA; floor is just for stroke legibility
   const MAX_BAKE_EDGE = 1024;     // safety ceiling on bake's long side
 
   function anchorBBox(anchors) {
@@ -672,32 +668,6 @@
       if (a.y < minY) minY = a.y; if (a.y > maxY) maxY = a.y;
     }
     return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
-  }
-
-  // Pick a bake scale whose long edge is:
-  //   max(MIN_BAKE_EDGE × ss, displayLong × dpr × ss),
-  // then clamped to MAX_BAKE_EDGE. ss multiplies both terms so it's
-  // a single "more or less quality" knob across all canvas sizes.
-  //
-  // Caller MUST have already collapsed the canvas's intrinsic aspect
-  // via collapseCanvasIntrinsic() — otherwise width:auto / height:auto
-  // dims inflate via the default 300:150 intrinsic and the bake gets
-  // wildly oversized along the auto axis.
-  function chooseBakeScale(canvas, bbox, padding) {
-    const longBbox = Math.max(bbox.w, bbox.h);
-    if (longBbox <= 0) return 1;
-
-    const dpr = root.devicePixelRatio || 1;
-    const ss  = +canvas.dataset.supersample || DEFAULT_SUPERSAMPLE;
-    const cssW = canvas.clientWidth  || canvas.width  || 320;
-    const cssH = canvas.clientHeight || canvas.height || 320;
-    const cssLong = Math.max(cssW, cssH);
-
-    let targetLong = ss * Math.max(MIN_BAKE_EDGE, cssLong * dpr);
-    if (targetLong > MAX_BAKE_EDGE) targetLong = MAX_BAKE_EDGE;
-
-    const scale = (targetLong - padding * 2) / longBbox;
-    return Math.max(0.05, scale);
   }
 
   // Without this, an embed using e.g. `height:32px; width:auto` reports
@@ -711,11 +681,47 @@
     void canvas.offsetHeight;  // force a sync reflow
   }
 
+  // Pick scale + padding so the bake's long edge matches the display
+  // canvas exactly (× dpr × supersample), capped at MAX_BAKE_EDGE.
+  //
+  // Padding is treated as a *logical* (anchor-space) quantity recovered
+  // from the export's metadata.padding / metadata.scale ratio — that
+  // way the visual proportion of margin around the drawing is the same
+  // regardless of how big or small we bake. Without this, a small bake
+  // has the same 24 bake-pixels of padding as a big one and the drawing
+  // visibly shrinks within the canvas.
+  //
+  // bake.long = bbox.long × scale + 2 × padding_bake
+  //           = bbox.long × scale + 2 × scale × paddingLogical
+  //           = (bbox.long + 2 × paddingLogical) × scale
+  // Solve for scale given a target bake.long.
+  function planBake(canvas, metadata) {
+    const bbox = anchorBBox(metadata.anchors);
+    const longBbox = Math.max(bbox.w, bbox.h);
+
+    const exportPadding = metadata.padding != null ? metadata.padding : 24;
+    const exportScale   = metadata.scale != null ? metadata.scale : 1.6;
+    const paddingLogical = exportPadding / exportScale;
+
+    const dpr = root.devicePixelRatio || 1;
+    const ss  = +canvas.dataset.supersample || DEFAULT_SUPERSAMPLE;
+    const cssW = canvas.clientWidth  || canvas.width  || 320;
+    const cssH = canvas.clientHeight || canvas.height || 320;
+    const cssLong = Math.max(cssW, cssH);
+
+    let targetLong = ss * cssLong * dpr;
+    if (targetLong > MAX_BAKE_EDGE) targetLong = MAX_BAKE_EDGE;
+    if (targetLong < 16) targetLong = 16;
+
+    const denom = Math.max(1, longBbox + 2 * paddingLogical);
+    const scale = Math.max(0.02, targetLong / denom);
+    const padding = Math.max(1, Math.round(paddingLogical * scale));
+    return { scale, padding };
+  }
+
   function bakeForCanvas(canvas, metadata) {
-    const padding = metadata.padding != null ? metadata.padding : 24;
-    const half    = metadata.half || 'full';
-    const bbox    = anchorBBox(metadata.anchors);
-    const scale   = chooseBakeScale(canvas, bbox, padding);
+    const half = metadata.half || 'full';
+    const { scale, padding } = planBake(canvas, metadata);
     return root.Neonic.bakeFromAnchors({
       anchors: metadata.anchors,
       scale, padding, half,

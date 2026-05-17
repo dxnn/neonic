@@ -33,9 +33,10 @@
     source PNGs. <strong>A</strong> is today's binary bake at the
     legacy floor (480 long). <strong>B</strong> keeps the same bake
     size but composites through the smooth mask (same compute, edges
-    from the mask). <strong>C</strong> drops the bake to 200 long
-    with the mask still doing AA — targets compute savings at the
-    same visible quality.
+    from the mask). <strong>C</strong> drops the floor entirely —
+    bake's long edge equals display × dpr × ss exactly, mask handles
+    AA. Padding scales with the bake so the drawing fills the canvas
+    the same way in all three columns.
   </p>
 
   <div id="tables"></div>
@@ -70,23 +71,34 @@
       void canvas.offsetHeight;
     }
 
-    function chooseScale(canvas, bbox, padding, minEdge) {
+    // Mirror NeonicLoader.planBake: target the bake's long edge to
+    // display × dpr × ss, with padding treated as a logical-space
+    // quantity (recovered from metadata.padding / metadata.scale)
+    // that scales WITH the bake — so the visual proportion of margin
+    // stays constant whether we bake at 200 or 480 px long.
+    function planBake(canvas, metadata, opts) {
+      const bbox = anchorBBox(metadata.anchors);
       const longBbox = Math.max(bbox.w, bbox.h);
-      if (longBbox <= 0) return 1;
+      const exportPad = metadata.padding != null ? metadata.padding : 24;
+      const exportScale = metadata.scale != null ? metadata.scale : 1.6;
+      const paddingLogical = exportPad / exportScale;
+
       const dpr = window.devicePixelRatio || 1;
-      const ss  = +canvas.dataset.supersample || 1;
+      const ss = +canvas.dataset.supersample || 1;
       const cssLong = Math.max(canvas.clientWidth, canvas.clientHeight);
-      let targetLong = ss * Math.max(minEdge, cssLong * dpr);
+      let targetLong = ss * Math.max(opts.minEdge, cssLong * dpr);
       if (targetLong > MAX_BAKE_EDGE) targetLong = MAX_BAKE_EDGE;
-      return Math.max(0.05, (targetLong - padding * 2) / longBbox);
+      if (targetLong < 16) targetLong = 16;
+      const denom = Math.max(1, longBbox + 2 * paddingLogical);
+      const scale = Math.max(0.02, targetLong / denom);
+      const padding = Math.max(1, Math.round(paddingLogical * scale));
+      return { scale, padding };
     }
 
     async function mountVariant(canvas, metadata, opts) {
-      const padding = metadata.padding != null ? metadata.padding : 24;
       const half = metadata.half || 'full';
-      const bbox = anchorBBox(metadata.anchors);
       collapseCanvasIntrinsic(canvas);
-      const scale = chooseScale(canvas, bbox, padding, opts.minEdge);
+      const { scale, padding } = planBake(canvas, metadata, opts);
       const baked = window.Neonic.bakeFromAnchors({
         anchors: metadata.anchors, scale, padding, half,
         softMask: opts.softMask,
@@ -116,7 +128,7 @@
     const VARIANTS = [
       { label: 'A', softMask: false, minEdge: 480 },
       { label: 'B', softMask: true,  minEdge: 480 },
-      { label: 'C', softMask: true,  minEdge: 200 },
+      { label: 'C', softMask: true,  minEdge: 0   },
     ];
 
     async function buildTable(source) {
@@ -130,7 +142,7 @@
         '<th>CSS height</th>' +
         '<th>A · binary, MIN=480</th>' +
         '<th>B · soft mask, MIN=480</th>' +
-        '<th>C · soft mask, MIN=200</th>' +
+        '<th>C · soft mask, no floor</th>' +
         '</tr></thead>';
       const tbody = document.createElement('tbody');
       table.appendChild(tbody);
