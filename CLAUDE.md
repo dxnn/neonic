@@ -52,95 +52,82 @@ Workflow:
 - NEONIC PNG metadata persists `thinning` so widths round-trip losslessly
   on import (slider restored before recompute).
 
-## Session state — 2026-05-16 (updated)
+## Session state — 2026-05-17 (display-adaptive playback)
 
-Soft-mask compositing: the bake's smooth alpha mask is now retained
-and applied via `globalCompositeOperation='destination-in'` after the
-indexed-palette putImageData. Anti-aliasing therefore lives in the
-bake itself (per-pixel fractional alpha from canvas2d's path-fill AA)
-instead of relying on the browser to oversample-and-downsample a much
-bigger backing store.
-
-- `bakeFromStroke` / `bakeFromAnchors` / `bakeFromD` accept
-  `softMask: true` (default). When set, mask threshold drops from 200
-  to 1, and `maskCanvas` is returned alongside `indices`.
-- `CycleEngine._paint` composites the mask if present (one extra
-  drawImage + two composite-mode setter calls per frame).
-- `NeonicLoader`: `MIN_BAKE_EDGE` dropped 480 → 200 since AA no
-  longer needs the oversample budget.
-- Tooling/example HTML moved under `extra/`:
-  `extra/compare-tiny-canvas.html` is the A/B (binary vs. soft mask),
-  `extra/compare-playback.html` is a redirect stub,
-  `extra/disc-stamp-test.html` is a dev sandbox,
-  `extra/logo-embed.html` is the recommended-usage example (now
-  using the bundle).
-
-Pre-existing bug fix: `built[idx].slice()` in the gradient-bar
-click-to-add-stop handler. `buildRamp` returns flat `Uint8Array(255*3)`
-since bc548da; this call site was missed in the refactor.
-
-Per-frame compute on the live logo at 32px CSS height (dpr=2):
-- Binary path (old): bake 480×438 ≈ 210k px/frame.
-- Soft mask path (new): bake 200×186 ≈ 37k px/frame.
-- Quality should be visibly comparable; verify on retina via
-  `extra/compare-tiny-canvas.html` columns A vs C.
-
-Open / future work:
-- The soft-mask path means `MIN_BAKE_EDGE` could go lower than 200
-  for drawings with thicker strokes. Adaptive based on min stroke
-  width is the natural next step.
-- Anchor BBox doesn't account for stroke-half-width swelling, so
-  thicker strokes may clip into the padding band. Hasn't been seen
-  in practice. Worth tightening if a drawing comes in with very thick
-  edge strokes.
-
-## Session state — 2026-05-15
 Tests: `node --test tests/*.test.js` — 22 passing. Syntax check passes.
 
-This session: resolution-adaptive playback + smaller PNGs
-(`b38f931..d1021d9`, 5 commits).
+Shipped: resolution-adaptive playback, soft-mask compositing, format
+v2 (no embedded indices). The runtime decides bake size from the
+display canvas; embeds bake only what they show.
 
-What landed:
-- `Neonic.bakeFromAnchors({ anchors, scale, padding, half })` and
-  `Neonic.sampleAnchors(anchors, perSeg)` added to the runtime so any
-  consumer can re-bake from anchor metadata without pulling in editor
-  internals.
-- `NeonicLoader.mount` rebakes from `metadata.anchors` at
-  `clientWidth × devicePixelRatio × supersample` (default ss=2). One
-  rAF wait if `clientWidth` is 0 (otherwise we'd fall through to the
-  canvas's 300×150 attribute default). Bake's long edge capped at
-  `MAX_BAKE_EDGE = 1024` so a big canvas on retina doesn't melt CPUs.
-- `NeonicPng` format bumped to v2: no more `indices` field. Encoder
-  doesn't accept it, decoder doesn't return it. Old PNGs with
-  meta.indices still decode (the field is just ignored).
-- `index.html` exportSize dropdown removed. Preview image is always
-  baked at `scale=0.8` (= "half" of the historical 1.6); playback is
-  display-resolution-driven anyway.
-- `compare-tiny-canvas.html`: standalone QA page that mounts the same
-  PNG into canvases at 32 / 48 / 64 / 120 / 240 / 480 px CSS height
-  (mimicking the aisoup-style `height:32px; width:auto` pattern),
-  with three supersample columns: default(ss=2), ss=1 (compute-tight),
-  ss=4 (quality-max). Each cell reports bake dims + px/frame.
-- `compare-playback.html`: the legacy-vs-new comparison from earlier
-  in the session is now a no-op redirect to `compare-tiny-canvas.html`
-  since the legacy path no longer exists.
+Architecture in one paragraph:
+NEONIC PNGs carry anchors + palettes + a static preview image — no
+precomputed indices buffer. At mount, `NeonicLoader.planBake` solves
+`scale = targetLong / (bboxLong + 2 × paddingLogical)` where
+`targetLong = cssLong × dpr × supersample`. The bake step disc-stamps
+indices AND a smooth alpha mask. The painter does indexed-palette
+putImageData → `globalCompositeOperation='destination-in'` →
+drawImage(mask), so AA edges come from the mask, not from oversample.
 
-Measured impact on `logo.neonic.png`:
-- File size: 326 KB → ~33 KB once re-exported (~90% smaller; the
-  committed `logo.neonic.png` is still the pre-eradication 326 KB
-  file, will shrink on next export).
-- Per-frame compute (32px-tall canvas, dpr=2, ss=2 default):
-  legacy ≈173k px → new ≈31k px (~5–6× less). Big-canvas worst case
-  is now bounded by MAX_BAKE_EDGE rather than display × dpr × ss.
+Embedder surface (the only knob):
+- `data-supersample="N"` on the canvas. Default 1. Useful values 1, 2, 4.
+
+Internal knobs (not user-facing):
+- `MAX_BAKE_EDGE = 1024` — safety ceiling on bake long edge.
+- `softMask: true` default in `bakeFromStroke`/`bakeFromAnchors`/`bakeFromD`.
+  False would keep the legacy binary bake; nothing in-tree uses false
+  except the A/B compare page.
+
+Per-frame compute on the project logo at 32px CSS height, retina:
+- Pre-work (binary, fixed 480-long bake): ~210k px/frame.
+- Post-work (soft mask, no floor, ss=1): ~4k px/frame. ~50× less.
+
+File map (deploy):
+- `index.html` — editor.
+- `neonic-playback.js` — bundled runtime (~35 KB).
+- `logo.neonic.png` — sample (still 326 KB; will shrink to ~33 KB on
+  re-export through the editor, format-v2 metadata drops the indices).
+- `perfect-freehand.mjs` — vendored stroke helper.
+
+File map (tooling, under `extra/`, gitignored):
+- `compare-tiny-canvas.html` — A/B compare across four PNGs at five
+  CSS heights. Three columns: ss=2 (4× pixels of C, GPU oversample),
+  legacy floor (MIN=480 for reference), ss=1 (no floor — baseline).
+- `compare-playback.html` — redirect stub to the tiny-canvas page.
+- `disc-stamp-test.html` — dev sandbox for PF outline vs disc-stamp.
+- `logo-embed.html` — recommended-usage example, single-bundle.
+- `logo-12.neonic.png` — local-only sample (gitignored).
+
+Things worth knowing about the journey (in case the same questions
+come back):
+- The `padding` parameter is in bake-pixels in the API, but
+  `NeonicLoader.planBake` recovers a logical-units padding from
+  `metadata.padding / metadata.scale` and re-multiplies by the chosen
+  bake scale, so margin proportions stay constant across bake sizes.
+  Direct callers of `bakeFromAnchors` (e.g. the editor's preview)
+  still pass a bake-pixel `padding`.
+- The pre-mount `clientWidth` of a canvas with `width: auto` reflects
+  the default 300:150 intrinsic, *not* the post-layout CSS dim. The
+  loader sets `canvas.width = canvas.height = 1` and forces a reflow
+  before measuring (`collapseCanvasIntrinsic`).
+- Disc-stamping spacing is tied to disc radius (not lenSpan/800) so
+  thin strokes at small scales stay continuous — the old formula
+  produced visible beading on emmyjs-style designs.
+
+Pre-existing bug fix in this session: `built[idx].slice()` in the
+gradient-bar click-to-add-stop handler. `buildRamp` returns flat
+`Uint8Array(255*3)` since bc548da; this call site was missed in
+the refactor.
 
 Open / future work:
-- Adaptive supersample (more ss for smaller canvases, less for big)
-  — user wanted to defer until baseline behaviour settles.
-- Re-export of `logo.neonic.png` to shrink the committed file —
-  needs a manual roundtrip through the editor's import/export buttons.
-- Quality at very small canvases on dpr=1 is necessarily limited.
-  Embeds targeting non-retina screens at <50px height should bump
-  to `data-supersample="4"` to keep strokes smooth.
+- `nwp/neonic-playback.js` (local article-deploy mirror, gitignored)
+  is out of sync with the bundle. User manages that deploy separately.
+- `logo.neonic.png` still has v1 metadata (with stale indices field).
+  Re-export through the editor to get a ~33 KB v2 file.
+- Adaptive supersample (per-canvas-size auto choice) was discussed
+  and deferred. The fixed `data-supersample` knob is the entire
+  current API; revisit only if real-world embeds report quality
+  problems at any size.
 
 ## Session state — 2026-05-04
 Tests: `node --test tests/` — 19 passing. Syntax check passes; dev server returns 200.
