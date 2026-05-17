@@ -12,10 +12,11 @@
 //   const decoded = NeonicPng.decode(uint8Array);
 //   // → { width, height, metadata }
 //
-// Decoder also accepts the legacy 'pshift' iTXt key (pre-rename), so
-// old .pshift.png exports continue to load until they're re-saved.
-// Pre-v2 PNGs that carried an `indices` field in their metadata are
-// accepted too — the field is ignored.
+// Format versions accepted on decode:
+//   v3 — current. metadata.paddingLogical stored directly in anchor space.
+//   v2 — paddingLogical = padding / scale; loader recovers via that ratio.
+//   v1 — also carried a precomputed indices field; ignored on read.
+//   'pshift' keyword — legacy (pre-rename); decoded identically.
 //
 // To build a palette ramp from decoded stops, use Neonic.buildRamp(stops).
 
@@ -74,9 +75,11 @@
     const parts = [pngBytes.subarray(0, 8)];
     let pos = 8;
     while (pos < pngBytes.length) {
+      if (pos + 8 > pngBytes.length) throw new Error('Truncated PNG: chunk header past EOF');
       const len = readU32(pngBytes, pos);
       const type = readType(pngBytes, pos + 4);
       const total = 12 + len;
+      if (pos + total > pngBytes.length) throw new Error('Truncated PNG: chunk body past EOF');
       if (type === 'IEND') {
         parts.push(makeChunk('iTXt', makeIText(keyword, text)));
       }
@@ -109,6 +112,11 @@
   // `thinning` records the slider value at export time so import can
   // restore it; without that, anchor widths drift on re-load because
   // the formula reapplies at whatever the slider happens to be.
+  //
+  // The metadata stores `paddingLogical` (in anchor-space units)
+  // alongside the bake-pixel `padding` it was rendered with. The
+  // loader prefers paddingLogical when present so re-bakes at
+  // different scales keep the same visual margin proportion.
   async function encode(opts) {
     const { canvas, anchors,
             palettes, activeIdx, playMode,
@@ -116,15 +124,18 @@
     const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
     if (!blob) throw new Error('canvas.toBlob returned null');
     const pngBytes = new Uint8Array(await blob.arrayBuffer());
+    const paddingLogical = (scale > 0 && padding != null)
+      ? padding / scale
+      : null;
     const meta = {
-      version: 2,
+      version: 3,
       width: canvas.width,
       height: canvas.height,
       anchors,
       palettes,
       activeIdx,
       playMode,
-      strokeWidth, thinning, scale, padding, half,
+      strokeWidth, thinning, scale, padding, paddingLogical, half,
     };
     return injectIText(pngBytes, 'neonic', JSON.stringify(meta));
   }
@@ -139,10 +150,12 @@
     if (pngBytes[0] !== 0x89 || pngBytes[1] !== 0x50) throw new Error('Not a PNG');
     let pos = 8, meta = null;
     while (pos < pngBytes.length) {
+      if (pos + 8 > pngBytes.length) throw new Error('Truncated PNG: chunk header past EOF');
       const len = readU32(pngBytes, pos);
       const type = readType(pngBytes, pos + 4);
       const dataStart = pos + 8;
       const dataEnd = dataStart + len;
+      if (dataEnd > pngBytes.length) throw new Error('Truncated PNG: chunk body past EOF');
       if (type === 'iTXt') {
         let p = dataStart;
         while (p < dataEnd && pngBytes[p] !== 0) p++;
