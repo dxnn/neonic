@@ -54,15 +54,13 @@
   };
 
   // ─── bake ───────────────────────────────────────────────────────────────
-  // softMask (default true): keep the smooth alpha mask around so the
-  // engine can composite the cycling colors through it at paint time.
-  // That moves anti-aliasing into the bake (per-pixel fractional alpha)
-  // and means small bakes still produce smooth strokes on display. With
-  // softMask:false the indices buffer is the old binary one and all AA
-  // has to come from the browser's GPU downsample of a much bigger bake.
+  // Disc-stamps an indexed bitmap (one palette slot per stroke segment)
+  // along with a smooth alpha mask. The engine composites cycling colors
+  // through that mask (destination-in) so stroke-edge AA lives inside
+  // the bake and small bakes still produce smooth strokes on display.
   function bakeFromD(opts) {
-    const { d, scale = 1.6, padding = 24, strokeWidth = 18, half = 'first',
-            softMask = true } = opts || {};
+    const { d, scale = 1.6, padding = 24, strokeWidth = 18, half = 'first'
+          } = opts || {};
     const ns = 'http://www.w3.org/2000/svg';
     const tmp = document.createElementNS(ns, 'svg');
     tmp.style.cssText = 'position:absolute;left:-99999px';
@@ -103,7 +101,7 @@
 
     // index canvas
     const idxC = document.createElement('canvas'); idxC.width = w; idxC.height = h;
-    const ictx = idxC.getContext('2d', { willReadFrequently: true });
+    const ictx = idxC.getContext('2d');
     ictx.lineWidth = STROKE_W; ictx.lineCap = 'round'; ictx.lineJoin = 'round';
     for (let i = 0; i < N_SEG; i++) {
       const v = i + 1;
@@ -118,7 +116,7 @@
 
     // alpha mask
     const mskC = document.createElement('canvas'); mskC.width = w; mskC.height = h;
-    const mctx = mskC.getContext('2d', { willReadFrequently: true });
+    const mctx = mskC.getContext('2d');
     mctx.lineWidth = STROKE_W * 0.92; mctx.lineCap = 'round'; mctx.lineJoin = 'round';
     mctx.strokeStyle = '#fff';
     mctx.beginPath();
@@ -127,15 +125,12 @@
     mctx.stroke();
     const mskData = mctx.getImageData(0, 0, w, h).data;
 
-    // Threshold: in binary mode we drop any pixel with mask alpha < 200
-    // so the binary indices buffer has clean stroke/no-stroke pixels and
-    // browser oversampling supplies the AA. In soft-mask mode we keep
-    // any pixel the mask touched at all (≥ 1), and the per-pixel alpha
-    // in mskC stays around for the engine's destination-in composite.
-    const thresh = softMask ? 1 : 200;
+    // Any pixel the mask touched at all gets a palette index; the
+    // per-pixel alpha in mskC then provides smooth edge AA at composite
+    // time via destination-in.
     const indices = new Uint8Array(w * h);
     for (let i = 0; i < w * h; i++) {
-      if (mskData[i*4+3] < thresh) { indices[i] = 0; continue; }
+      if (mskData[i*4+3] < 1) { indices[i] = 0; continue; }
       let v = idxData[i*4]; if (v < 1) v = 1; if (v > 254) v = 254;
       indices[i] = v;
     }
@@ -154,7 +149,7 @@
     }
 
     document.body.removeChild(tmp);
-    return { width: w, height: h, indices, maskCanvas: softMask ? mskC : null };
+    return { width: w, height: h, indices, maskCanvas: mskC };
   }
 
   // ─── bake from a width-bearing stroke ───────────────────────────────────
@@ -164,8 +159,8 @@
   // panel 1 paints from the same samples. Otherwise mirrors bakeFromD's
   // mask + index pipeline.
   function bakeFromStroke(opts) {
-    const { stroke, scale = 1.6, padding = 24, half = 'first',
-            softMask = true } = opts || {};
+    const { stroke, scale = 1.6, padding = 24, half = 'first'
+          } = opts || {};
     if (!stroke || stroke.length < 2) throw new Error('Stroke has fewer than 2 points.');
 
     const cumLen = new Array(stroke.length);
@@ -242,7 +237,7 @@
     // a thinner segment, so we use discs instead.)
 
     const idxC = document.createElement('canvas'); idxC.width = w; idxC.height = h;
-    const ictx = idxC.getContext('2d', { willReadFrequently: true });
+    const ictx = idxC.getContext('2d');
     for (let i = 0; i < N_SEG; i++) {
       const v = i + 1;
       ictx.fillStyle = 'rgb(' + v + ',0,0)';
@@ -268,7 +263,7 @@
     const idxData = ictx.getImageData(0, 0, w, h).data;
 
     const mskC = document.createElement('canvas'); mskC.width = w; mskC.height = h;
-    const mctx = mskC.getContext('2d', { willReadFrequently: true });
+    const mctx = mskC.getContext('2d');
     mctx.fillStyle = '#fff';
     for (let i = 0; i <= TOTAL; i++) {
       const p = pts[i];
@@ -279,11 +274,11 @@
     }
     const mskData = mctx.getImageData(0, 0, w, h).data;
 
-    // See bakeFromD for the softMask/threshold rationale.
-    const thresh = softMask ? 1 : 200;
+    // See bakeFromD: any mask-touched pixel gets a palette index;
+    // mask alpha provides edge AA at composite time.
     const indices = new Uint8Array(w * h);
     for (let i = 0; i < w * h; i++) {
-      if (mskData[i * 4 + 3] < thresh) { indices[i] = 0; continue; }
+      if (mskData[i * 4 + 3] < 1) { indices[i] = 0; continue; }
       let v = idxData[i * 4]; if (v < 1) v = 1; if (v > 254) v = 254;
       indices[i] = v;
     }
@@ -300,7 +295,7 @@
       }
     }
 
-    return { width: w, height: h, indices, maskCanvas: softMask ? mskC : null };
+    return { width: w, height: h, indices, maskCanvas: mskC };
   }
 
   // ─── bake from editor anchors ───────────────────────────────────────────
@@ -335,10 +330,10 @@
     return out;
   }
   function bakeFromAnchors(opts) {
-    const { anchors, perSeg, scale, padding, half, softMask } = opts || {};
+    const { anchors, perSeg, scale, padding, half } = opts || {};
     return bakeFromStroke({
       stroke: sampleAnchors(anchors, perSeg),
-      scale, padding, half, softMask,
+      scale, padding, half,
     });
   }
 
@@ -368,11 +363,15 @@
     this.baseStartOff = 0;
     this.nextPalette = null;
     this.nextStartOff = -1;
-    this.offset = 0; this.speed = 40; this.reverse = false;
+    this.offset = 0; this.speed = 40;
     this.running = false; this._raf = 0; this._last = 0;
     this._boundFrame = this._frame.bind(this);
     this._renderOff = NaN;
     this._palDirty = false;
+    // Optional per-frame hook (e.g. the loader's playlist watcher).
+    // Called at the end of every _frame after paint, so a single rAF
+    // loop drives both engine and any consumer-level scheduling.
+    this.onFrame = null;
   }
   CycleEngine.prototype.setPalette = function (n) {
     this.basePalette = typeof n === 'string' ? PALETTES[n]() : n;
@@ -396,8 +395,11 @@
     this.nextStartOff = (scheduledOff != null) ? scheduledOff : this.offset;
     this._palDirty = true;
   };
+  // Speed is signed: negative values cycle the palette backward. The
+  // editor doesn't currently expose negative speeds in its UI but a
+  // consumer can pass one directly (and the loader picks up whatever
+  // sign is stored in metadata.palettes[*].speed).
   CycleEngine.prototype.setSpeed = function (s) { this.speed = s; };
-  CycleEngine.prototype.setReverse = function (r) { this.reverse = !!r; };
   CycleEngine.prototype._writePalette = function () {
     if (this.nextPalette !== null && (this.offset - this.nextStartOff) >= 254) {
       this.basePalette = this.nextPalette;
@@ -458,6 +460,7 @@
       this._writePalette();
       this._paint();
     }
+    if (this.onFrame) this.onFrame(this);
     this._raf = requestAnimationFrame(this._boundFrame);
   };
   CycleEngine.prototype.start = function () {
