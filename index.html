@@ -645,6 +645,50 @@
 import { getStroke, getStrokePoints } from './perfect-freehand.mjs';
 
 const $ = (id) => document.getElementById(id);
+const hex = (h) => { const n = parseInt(h.slice(1), 16); return [(n>>16)&255,(n>>8)&255,n&255]; };
+
+// ─── Built-in palette presets ────────────────────────────────────────────
+// These are editor data, not engine data — the engine knows how to cycle a
+// ramp, not how to name one. Embed-time playback reads palette stops from
+// PNG metadata; these named stops only seed the editor's preset dropdown.
+const PALETTE_STOPS = {
+  greyscale: [
+    {t:0,color:hex('#0a0a0b')},{t:1,color:hex('#f5f3ec')},
+  ],
+  sodium: [
+    {t:0,color:hex('#1a0a02')},{t:.45,color:hex('#a5410a')},
+    {t:.78,color:hex('#ffb24a')},{t:1,color:hex('#fff7d6')},
+  ],
+  cyan: [
+    {t:0,color:hex('#03070d')},{t:.72,color:hex('#3fb6e6')},
+    {t:1,color:hex('#eaf6ff')},
+  ],
+  plasma: [
+    {t:0,color:hex('#0d0420')},{t:.55,color:hex('#c2317a')},
+    {t:.78,color:hex('#f08a3a')},{t:1,color:hex('#fff2cf')},
+  ],
+  rainbow: [
+    {t:0.00,color:hex('#1f7bff')},{t:0.17,color:hex('#7b2dff')},
+    {t:0.34,color:hex('#ff2a2a')},{t:0.50,color:hex('#ff8a14')},
+    {t:0.67,color:hex('#ffe600')},{t:0.83,color:hex('#2dd24a')},
+    {t:1.00,color:hex('#1f7bff')},
+  ],
+  // Compressed rainbow: long blue floor with a narrow rainbow band
+  // around t=0.5. Mirrors the regular rainbow's leading purple
+  // (blue→purple→red...) with the purple stop right before red, plus
+  // the existing purple after the band so the cycle reads symmetric.
+  rainbowCompressed: (() => {
+    const blue = hex('#1f7bff');
+    return [
+      {t:0.000,color:blue},{t:0.449,color:blue},
+      {t:0.4495,color:hex('#7b2dff')},
+      {t:0.450,color:hex('#ff2a2a')},{t:0.467,color:hex('#ff8a14')},
+      {t:0.484,color:hex('#ffe600')},{t:0.500,color:hex('#2dd24a')},
+      {t:0.517,color:hex('#1f7bff')},{t:0.534,color:hex('#7b2dff')},
+      {t:0.550,color:blue},{t:1.000,color:blue},
+    ];
+  })(),
+};
 
 // ─── State ───────────────────────────────────────────────────────────────
 const state = { paths: [] };
@@ -1515,7 +1559,7 @@ function rebake() {
 
 // ─── Palette presets ─────────────────────────────────────────────────────
 // Saved presets ("seeds" in the legacy storage key) live in localStorage
-// and merge with Neonic.PALETTES in every drawer's preset dropdown.
+// and merge with PALETTE_STOPS in every drawer's preset dropdown.
 const PRESETS_KEY = 'neonic.seeds';
 function loadCustomPresets() {
   try { return JSON.parse(localStorage.getItem(PRESETS_KEY) || '{}'); }
@@ -1526,7 +1570,7 @@ function saveCustomPresets(map) {
 }
 
 // Build a fresh stops array from a preset name.
-//   "rainbow" → the verbatim stops from Neonic.PALETTE_STOPS
+//   "rainbow" → the verbatim stops from PALETTE_STOPS
 //   "custom:foo" → the verbatim saved stops from localStorage
 // In both cases the result is a fresh copy so subsequent edits don't
 // mutate the preset source.
@@ -1537,7 +1581,7 @@ function buildStopsFromPreset(name) {
     if (!stored) return null;
     return stored.map(s => ({ t: s.t, color: s.color.slice() }));
   }
-  const stops = window.Neonic.PALETTE_STOPS && window.Neonic.PALETTE_STOPS[name];
+  const stops = PALETTE_STOPS[name];
   if (!stops) return null;
   return stops.map(s => ({ t: s.t, color: s.color.slice() }));
 }
@@ -1837,7 +1881,7 @@ function startCycleWatcher() {
 function buildPresetOptions(sel, currentName) {
   sel.innerHTML = '';
   const truncate = (s) => s.length > 17 ? s.slice(0, 17) + '…' : s;
-  for (const name of Object.keys(window.Neonic.PALETTES)) {
+  for (const name of Object.keys(PALETTE_STOPS)) {
     const o = document.createElement('option');
     o.value = name; o.textContent = truncate(name); o.title = name;
     sel.appendChild(o);

@@ -50,7 +50,7 @@ const ctx = vm.createContext({
 });
 vm.runInContext(src, ctx);
 const { Neonic } = ctx.window;
-const { CycleEngine, PALETTES, buildRamp, _test: { rgba, hex } } = Neonic;
+const { CycleEngine, buildRamp, _test: { rgba, hex } } = Neonic;
 
 function makeEngine() { return new CycleEngine(mockCanvas(), mockBaked()); }
 
@@ -121,17 +121,6 @@ test('buildRamp accepts {t, color} stop format', () => {
   assert.equal(ramp[0],   100);
   assert.equal(ramp[1],   150);
   assert.equal(ramp[2],   200);
-});
-
-// ── PALETTES ─────────────────────────────────────────────────────────────────
-test('built-in PALETTES return Uint8Array(255*3)', () => {
-  for (const name of Object.keys(PALETTES)) {
-    const p = PALETTES[name]();
-    assert.ok(Object.prototype.toString.call(p) === '[object Uint8Array]', `${name} is not a Uint8Array`);
-    assert.equal(p.length, 255 * 3, `${name} has wrong length`);
-    // Spot-check: values are in 0..255 range
-    assert.ok(p[0] >= 0 && p[0] <= 255, `${name}[0] out of range`);
-  }
 });
 
 // ── CycleEngine ───────────────────────────────────────────────────────────────

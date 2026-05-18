@@ -9,7 +9,8 @@
 // Usage:
 //   const baked = Neonic.bakeFromD({ d, scale, strokeWidth, half, padding });
 //   const eng = new Neonic.CycleEngine(canvasEl, baked);
-//   eng.setPalette('rainbow'); eng.setSpeed(60); eng.start();
+//   const ramp = Neonic.buildRamp([{t:0, color:[0,0,0]}, {t:1, color:[255,255,255]}]);
+//   eng.setPalette(ramp); eng.setSpeed(60); eng.start();
 
 (function (root) {
   // ─── helpers ────────────────────────────────────────────────────────────
@@ -37,27 +38,6 @@
     }
     return out;
   }
-
-  const PALETTES = {
-    greyscale: () => buildRamp([{t:0,color:hex('#0a0a0b')},{t:1,color:hex('#f5f3ec')}]),
-    sodium:    () => buildRamp([{t:0,color:hex('#1a0a02')},{t:.45,color:hex('#a5410a')},{t:.78,color:hex('#ffb24a')},{t:1,color:hex('#fff7d6')}]),
-    cyan:      () => buildRamp([{t:0,color:hex('#03070d')},{t:.40,color:hex('#0a4a72')},{t:.72,color:hex('#3fb6e6')},{t:1,color:hex('#eaf6ff')}]),
-    plasma:    () => buildRamp([{t:0,color:hex('#0d0420')},{t:.30,color:hex('#5a0c6e')},{t:.55,color:hex('#c2317a')},{t:.78,color:hex('#f08a3a')},{t:1,color:hex('#fff2cf')}]),
-    rainbow:   () => buildRamp([
-      {t:0.00,color:hex('#ff2a2a')},{t:0.17,color:hex('#ff8a14')},{t:0.33,color:hex('#ffe600')},
-      {t:0.50,color:hex('#2dd24a')},{t:0.66,color:hex('#1f7bff')},{t:0.83,color:hex('#7b2dff')},
-      {t:1.00,color:hex('#ff2a2a')},
-    ]),
-    rainbowCompressed: () => {
-      const blue = hex('#1f7bff');
-      return buildRamp([
-        {t:0.000,color:blue},{t:0.449,color:blue},
-        {t:0.450,color:hex('#ff2a2a')},{t:0.467,color:hex('#ff8a14')},{t:0.484,color:hex('#ffe600')},
-        {t:0.500,color:hex('#2dd24a')},{t:0.517,color:hex('#1f7bff')},{t:0.534,color:hex('#7b2dff')},
-        {t:0.550,color:blue},{t:1.000,color:blue},
-      ]);
-    },
-  };
 
   // ─── bake ───────────────────────────────────────────────────────────────
   // Disc-stamps an indexed bitmap (one palette slot per stroke segment)
@@ -365,7 +345,13 @@
     // cycling colors through it (destination-in) to get anti-aliased
     // stroke edges from the bake instead of from browser oversampling.
     this.maskCanvas = baked.maskCanvas || null;
-    this.basePalette = PALETTES.greyscale();
+    // All-zero default palette. Engines don't ship named palettes any
+    // more — every caller in the codebase (loader + editor) calls
+    // setPalette() with a built ramp before the first paint, so the
+    // zero default is never visible. A standalone consumer who forgets
+    // to call setPalette will see solid black, which is louder than
+    // shipping a hardcoded greyscale.
+    this.basePalette = new Uint8Array(255 * 3);
     this.baseStartOff = 0;
     this.nextPalette = null;
     this.nextStartOff = -1;
@@ -379,8 +365,12 @@
     // loop drives both engine and any consumer-level scheduling.
     this.onFrame = null;
   }
-  CycleEngine.prototype.setPalette = function (n) {
-    this.basePalette = typeof n === 'string' ? PALETTES[n]() : n;
+  // setPalette / replacePalette / transitionTo all take a Uint8Array
+  // ramp (255 entries × 3 bytes). Use buildRamp(stops) to produce one
+  // from a stop array. The engine no longer knows palette names; named
+  // presets are an editor concern.
+  CycleEngine.prototype.setPalette = function (ramp) {
+    this.basePalette = ramp;
     this.baseStartOff = this.offset;
     this.nextPalette = null;
     this.nextStartOff = -1;
@@ -389,15 +379,15 @@
   // Live-edit a palette without resetting the cycle position. Used by the
   // editor's stop-edits — the user wants their tweaks to appear without
   // jumping the cycle back to phase 0.
-  CycleEngine.prototype.replacePalette = function (n) {
-    this.basePalette = typeof n === 'string' ? PALETTES[n]() : n;
+  CycleEngine.prototype.replacePalette = function (ramp) {
+    this.basePalette = ramp;
     this._palDirty = true;
   };
-  // Schedule a feed-in of `n` starting at `scheduledOff` (defaults to now).
-  // The watcher snaps scheduledOff to a cycle boundary so palette[1] reads
-  // n[0] exactly at scheduledOff.
-  CycleEngine.prototype.transitionTo = function (n, scheduledOff) {
-    this.nextPalette = typeof n === 'string' ? PALETTES[n]() : n;
+  // Schedule a feed-in of `ramp` starting at `scheduledOff` (defaults
+  // to now). The watcher snaps scheduledOff to a cycle boundary so
+  // palette[1] reads ramp[0] exactly at scheduledOff.
+  CycleEngine.prototype.transitionTo = function (ramp, scheduledOff) {
+    this.nextPalette = ramp;
     this.nextStartOff = (scheduledOff != null) ? scheduledOff : this.offset;
     this._palDirty = true;
   };
@@ -407,7 +397,7 @@
   // sign is stored in metadata.palettes[*].speed).
   CycleEngine.prototype.setSpeed = function (s) { this.speed = s; };
   CycleEngine.prototype._writePalette = function () {
-    if (this.nextPalette !== null && (this.offset - this.nextStartOff) >= 254) {
+    if (this.nextPalette !== null && Math.abs(this.offset - this.nextStartOff) >= 254) {
       this.basePalette = this.nextPalette;
       this.baseStartOff = this.nextStartOff;
       this.nextPalette = null;
@@ -484,7 +474,7 @@
     this._paint();
   };
 
-  root.Neonic = { bakeFromD, bakeFromStroke, bakeFromAnchors, sampleAnchors, CycleEngine, PALETTES, buildRamp, _test: { rgba, hex } };
+  root.Neonic = { bakeFromD, bakeFromStroke, bakeFromAnchors, sampleAnchors, CycleEngine, buildRamp, _test: { rgba, hex } };
 })(window);
 
 // neonic-png.js

@@ -201,8 +201,11 @@ Open or future work the user might pick up:
 ## Naming
 - Project name is **Neonic**. The runtime global is `window.Neonic`
   (was `window.HyperDrive` in earlier commits — the name was a working
-  title). All consumers use `window.Neonic.{CycleEngine, bakeFromD,
-  bakeFromStroke, PALETTES, buildRamp}`.
+  title). The exported surface is `{CycleEngine, bakeFromD,
+  bakeFromStroke, bakeFromAnchors, sampleAnchors, buildRamp}`. The
+  engine deliberately has no built-in palette dict — named palette
+  presets are an editor concept (see `PALETTE_STOPS` in `index.html`),
+  and embed-time playback gets stops from PNG metadata.
 
 ## Article
 - `neonic_article.html` is the process essay (9-stage walkthrough of
