@@ -1805,6 +1805,7 @@ function updatePaletteCount() {
 function addToPlaylist() {
   // Adds a copy of the active palette (or the first one if nothing's
   // selected) and opens its drawer.
+  pushHistory();
   const src = playlist[activeIdx >= 0 ? activeIdx : 0] || null;
   const copy = src
     ? src.stops.map(s => ({ t: s.t, color: s.color.slice() }))
@@ -1821,6 +1822,7 @@ function addToPlaylist() {
 function removePlaylistItem(idx) {
   if (idx < 0 || idx >= playlist.length) return;
   if (playlist.length <= 1) return;
+  pushHistory();
   const wasActive = idx === activeIdx;
   const wasDisplayed = idx === displayedIdx;
   const wasPending = idx === pendingNextIdx;
@@ -1851,6 +1853,7 @@ function removePlaylistItem(idx) {
 function reorderPlaylist(from, to) {
   if (from === to || from < 0 || to < 0) return;
   if (from >= playlist.length || to >= playlist.length) return;
+  pushHistory();
   const moved = playlist.splice(from, 1)[0];
   playlist.splice(to, 0, moved);
   // Apply the same shift to activeIdx, displayedIdx, and pendingNextIdx
@@ -2013,7 +2016,9 @@ function renderPlaylist() {
 
     cyclesIn.addEventListener('change', () => {
       const v = Math.max(1, Math.min(99, +cyclesIn.value || 1));
-      cyclesIn.value = v;
+      cyclesIn.value = v;  // clamp the visible value even if entry is unchanged
+      if (v === entry.cycles) return;
+      pushHistory();
       entry.cycles = v;
       if (i === displayedIdx) targetCycles = v;
     });
@@ -2022,6 +2027,8 @@ function renderPlaylist() {
     rowSpeedIn.addEventListener('change', () => {
       const v = Math.max(0, Math.min(200, +rowSpeedIn.value || 0));
       rowSpeedIn.value = v;
+      if (v === entry.speed) return;
+      pushHistory();
       entry.speed = v;
       if (i === displayedIdx && engine && engine.nextPalette === null) {
         engine.setSpeed(v);
@@ -2086,6 +2093,7 @@ function renderPlaylist() {
     switchBtn.addEventListener('click', () => {
       const newStops = buildStopsFromPreset(presetSel.value);
       if (!newStops) return;
+      pushHistory();
       playlist[i].stops = newStops;
       playlist[i].presetName = presetSel.value;
       if (i === activeIdx) selectedStop = 0;
@@ -2124,7 +2132,9 @@ function renderPlaylist() {
       const palStops = playlist[i].stops;
       const hit = rampHandleHitTest(ramp, x, palStops);
       if (hit >= 0 && y > cssH - 26) {
-        // Drag an existing stop.
+        // Drag an existing stop. One history push per drag, not per
+        // pointermove — pointerup commits.
+        pushHistory();
         selectedStop = hit;
         activeDrag = { kind: 'ramp', stopIdx: hit, idx: i };
         drawDrawerRampOnto(ramp, palStops);
@@ -2133,6 +2143,7 @@ function renderPlaylist() {
       }
       if (y <= cssH - 26) {
         // Click on the bar → add a new stop.
+        pushHistory();
         const cssW = ramp.clientWidth || 1;
         const t = Math.max(0, Math.min(1, 1 - x / cssW));
         const idx = Math.min(254, Math.max(0, Math.round(t * 254)));
@@ -2155,6 +2166,13 @@ function renderPlaylist() {
     colorIn.type = 'color';
     colorIn.className = 'stop-color';
     colorLabel.appendChild(colorIn);
+    // Color picker scrubbing fires 'input' once per pixel of cursor
+    // motion — pushing history per micro-change would balloon the
+    // stack. Push once on 'click' (before the picker opens), then
+    // let 'input' update without further pushes.
+    colorIn.addEventListener('click', () => {
+      if (playlist[i].stops[selectedStop]) pushHistory();
+    });
     colorIn.addEventListener('input', () => {
       const s = playlist[i].stops[selectedStop];
       if (s) {
@@ -2170,6 +2188,7 @@ function renderPlaylist() {
     removeStopBtn.addEventListener('click', () => {
       const ps = playlist[i].stops;
       if (ps.length <= 2) return;
+      pushHistory();
       ps.splice(selectedStop, 1);
       selectedStop = Math.min(selectedStop, ps.length - 1);
       rebuildRamp();
@@ -2243,12 +2262,39 @@ $('clear').addEventListener('click', () => {
 });
 
 function snapshot() {
-  return JSON.stringify({ p: state.paths, s: smoothLevel });
+  return JSON.stringify({
+    p: state.paths,
+    s: smoothLevel,
+    // Playlist state — captured so palette ops (add/remove/reorder
+    // stops, switch preset, edit cycles/speed) become undoable
+    // alongside drawing edits.
+    pl: playlist,
+    ai: activeIdx, di: displayedIdx, pi: pendingNextIdx,
+    ss: selectedStop, tc: targetCycles,
+  });
 }
 function applySnapshot(s) {
   const o = JSON.parse(s);
   state.paths = o.p;
   smoothLevel = o.s;
+  // Pre-playlist snapshots (older in-memory entries) won't have `pl`.
+  // Leave playlist untouched in that case so we don't blow it away.
+  if (Array.isArray(o.pl)) {
+    playlist.length = 0;
+    for (const e of o.pl) playlist.push(e);
+    activeIdx = o.ai ?? -1;
+    displayedIdx = o.di ?? 0;
+    pendingNextIdx = o.pi ?? -1;
+    selectedStop = o.ss ?? 0;
+    targetCycles = o.tc ?? 1;
+    const dispEntry = playlist[displayedIdx];
+    if (engine && dispEntry) {
+      currentRamp = window.Neonic.buildRamp(dispEntry.stops);
+      engine.setPalette(currentRamp);
+      engine.setSpeed(dispEntry.speed);
+    }
+    renderPlaylist();
+  }
   scheduleRender();
   scheduleBake();
 }

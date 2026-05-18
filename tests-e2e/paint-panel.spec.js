@@ -78,3 +78,47 @@ test('Remove palette button is disabled when only one palette exists', async ({ 
   await expect(row).toHaveClass(/\bopen\b/);
   await expect(row.getByRole('button', { name: /remove palette/i })).toBeDisabled();
 });
+
+// ─── Undo / redo over palette ops ─────────────────────────────────────────
+
+test('Undo reverses Add palette', async ({ page }) => {
+  await page.goto('index.html');
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(page.locator('.pal-row')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(page.locator('.pal-row')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Redo' }).click();
+  await expect(page.locator('.pal-row')).toHaveCount(2);
+});
+
+test('Undo reverses preset switch', async ({ page }) => {
+  await page.goto('index.html');
+  const row = page.locator('.pal-row').first();
+  await row.locator('.swatch').click();
+
+  const select = row.locator('.preset-select');
+  await expect(select).toHaveValue('rainbow');
+  await select.selectOption('cyan');
+  await row.getByRole('button', { name: 'switch' }).click();
+  // The drawer's dropdown reflects the active preset.
+  await expect(select).toHaveValue('cyan');
+
+  await page.getByRole('button', { name: 'Undo' }).click();
+  // Drawer rebuilds after applySnapshot; re-fetch the select.
+  await expect(row.locator('.preset-select')).toHaveValue('rainbow');
+});
+
+test('Undo reverses cycles edit', async ({ page }) => {
+  await page.goto('index.html');
+  const row = page.locator('.pal-row').first();
+  const cycles = row.locator('.pal-row-head input[type=number]').first();
+  await expect(cycles).toHaveValue('1');
+  await cycles.fill('7');
+  await cycles.dispatchEvent('change');
+  await expect(cycles).toHaveValue('7');
+  await page.getByRole('button', { name: 'Undo' }).click();
+  // After applySnapshot the row is rebuilt; re-locate.
+  await expect(
+    page.locator('.pal-row').first().locator('.pal-row-head input[type=number]').first()
+  ).toHaveValue('1');
+});
