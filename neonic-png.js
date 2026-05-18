@@ -106,8 +106,7 @@
 
   // ─── public encode / decode ───────────────────────────────────────────
   // encode(opts) → Promise<Uint8Array>
-  // opts: { canvas, anchors,
-  //         palettes, activeIdx, playMode,
+  // opts: { canvas, anchors, palettes,
   //         strokeWidth, thinning, scale, padding, half }
   // `thinning` records the slider value at export time so import can
   // restore it; without that, anchor widths drift on re-load because
@@ -118,8 +117,7 @@
   // loader prefers paddingLogical when present so re-bakes at
   // different scales keep the same visual margin proportion.
   async function encode(opts) {
-    const { canvas, anchors,
-            palettes, activeIdx, playMode,
+    const { canvas, anchors, palettes,
             strokeWidth, thinning, scale, padding, half } = opts;
     const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
     if (!blob) throw new Error('canvas.toBlob returned null');
@@ -133,8 +131,6 @@
       height: canvas.height,
       anchors,
       palettes,
-      activeIdx,
-      playMode,
       strokeWidth, thinning, scale, padding, paddingLogical, half,
     };
     return injectIText(pngBytes, 'neonic', JSON.stringify(meta));

@@ -712,7 +712,6 @@ const playlist = [];        // [{ name, stops, speed, cycles }]
 let activeIdx = -1;         // editor's selected entry; -1 = scratch (no playlist)
 let displayedIdx = -1;      // engine's currently-playing entry
 let pendingNextIdx = -1;    // queued next-displayed during a transition
-let playMode = 'sequential';
 let targetCycles = 1;
 let cycleRaf = 0;
 
@@ -1873,11 +1872,7 @@ function reorderPlaylist(from, to) {
 }
 
 function pickNextIdx() {
-  if (playMode === 'sequential') return (displayedIdx + 1) % playlist.length;
-  let n;
-  do { n = Math.floor(Math.random() * playlist.length); }
-  while (n === displayedIdx && playlist.length > 1);
-  return n;
+  return (displayedIdx + 1) % playlist.length;
 }
 
 function startCycleWatcher() {
@@ -1894,9 +1889,7 @@ function startCycleWatcher() {
         displayedIdx = pendingNextIdx;
         pendingNextIdx = -1;
         const entry = playlist[displayedIdx];
-        targetCycles = playMode === 'surprise'
-          ? 1 + Math.floor(Math.random() * 4)
-          : (entry.cycles || 1);
+        targetCycles = entry.cycles || 1;
         engine.setSpeed(entry.speed);
         updatePlayingMarker();
       } else {
@@ -2452,8 +2445,6 @@ function importFromNeonicPng(buf) {
     // historical default of 0.4 baked into the formula.
     thinning: meta.thinning != null ? +meta.thinning : 0.4,
     palettes: Array.isArray(meta.palettes) && meta.palettes.length ? meta.palettes : null,
-    activeIdx: meta.activeIdx,
-    playMode: meta.playMode,
   };
 }
 
@@ -2486,10 +2477,13 @@ function applyImport(imp) {
         stops: p.stops.map(s => ({ t: s.t, color: s.color.slice() })),
         speed: p.speed != null ? p.speed : 60,
         cycles: p.cycles != null ? p.cycles : 1,
+        // presetName persists which dropdown entry the preset-switch UI
+        // should show for this row. Older PNGs that pre-date this field
+        // fall back to 'rainbow' via the dropdown's default.
+        presetName: p.presetName,
       });
     }
   }
-  if (imp.playMode) playMode = imp.playMode;
   selectedStop = 0;
   activeIdx = -1;
   displayedIdx = 0;
@@ -2574,8 +2568,6 @@ $('export').addEventListener('click', async (e) => {
       canvas: off,
       anchors: state.paths[0].anchors,
       palettes: playlist,
-      activeIdx: 0,            // always boot the embed on palette[0]
-      playMode,
       // path.size is the base for thinning recompute; slider value is
       // a fallback for very old paths that predate path.size.
       strokeWidth: state.paths[0].size != null ? state.paths[0].size : +strokeWIn.value,

@@ -592,8 +592,7 @@
 
   // ─── public encode / decode ───────────────────────────────────────────
   // encode(opts) → Promise<Uint8Array>
-  // opts: { canvas, anchors,
-  //         palettes, activeIdx, playMode,
+  // opts: { canvas, anchors, palettes,
   //         strokeWidth, thinning, scale, padding, half }
   // `thinning` records the slider value at export time so import can
   // restore it; without that, anchor widths drift on re-load because
@@ -604,8 +603,7 @@
   // loader prefers paddingLogical when present so re-bakes at
   // different scales keep the same visual margin proportion.
   async function encode(opts) {
-    const { canvas, anchors,
-            palettes, activeIdx, playMode,
+    const { canvas, anchors, palettes,
             strokeWidth, thinning, scale, padding, half } = opts;
     const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
     if (!blob) throw new Error('canvas.toBlob returned null');
@@ -619,8 +617,6 @@
       height: canvas.height,
       anchors,
       palettes,
-      activeIdx,
-      playMode,
       strokeWidth, thinning, scale, padding, paddingLogical, half,
     };
     return injectIText(pngBytes, 'neonic', JSON.stringify(meta));
@@ -860,17 +856,14 @@
 
     const eng = new root.Neonic.CycleEngine(canvas, baked);
     const palettes = metadata.palettes;
-    const mode = metadata.playMode || 'sequential';
-    let curIdx = (typeof metadata.activeIdx === 'number'
-                  && metadata.activeIdx >= 0
-                  && metadata.activeIdx < palettes.length) ? metadata.activeIdx : 0;
+    let curIdx = 0;
     let pendingNext = -1;
     let target = palettes[curIdx].cycles || 1;
 
     function applyPalette(i) {
       const p = palettes[i];
       eng.setPalette(root.Neonic.buildRamp(p.stops));
-      eng.setSpeed(p.speed);  // sign preserved: negative = cycle backward
+      eng.setSpeed(p.speed);
     }
     applyPalette(curIdx);
 
@@ -879,7 +872,7 @@
     if (palettes.length > 1) {
       eng.onFrame = function () {
         if (eng.nextPalette !== null) {
-          // Tween speed across the 254-tick feed-in. Sign-preserving.
+          // Tween speed across the 254-tick feed-in.
           const tFrac = Math.max(0, Math.min(1,
             (eng.offset - eng.nextStartOff) / 254));
           const s1 = palettes[curIdx].speed;
@@ -888,14 +881,9 @@
         } else if (pendingNext >= 0) {
           curIdx = pendingNext; pendingNext = -1;
           applyPalette(curIdx);
-          target = mode === 'surprise'
-            ? 1 + Math.floor(Math.random() * 4)
-            : (palettes[curIdx].cycles || 1);
+          target = palettes[curIdx].cycles || 1;
         } else if ((eng.offset - eng.baseStartOff) / 255 >= target) {
-          let next;
-          if (mode === 'sequential') next = (curIdx + 1) % palettes.length;
-          else { do { next = Math.floor(Math.random() * palettes.length); }
-                 while (next === curIdx); }
+          const next = (curIdx + 1) % palettes.length;
           pendingNext = next;
           eng.transitionTo(
             root.Neonic.buildRamp(palettes[next].stops),

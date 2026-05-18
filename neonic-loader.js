@@ -189,17 +189,14 @@
 
     const eng = new root.Neonic.CycleEngine(canvas, baked);
     const palettes = metadata.palettes;
-    const mode = metadata.playMode || 'sequential';
-    let curIdx = (typeof metadata.activeIdx === 'number'
-                  && metadata.activeIdx >= 0
-                  && metadata.activeIdx < palettes.length) ? metadata.activeIdx : 0;
+    let curIdx = 0;
     let pendingNext = -1;
     let target = palettes[curIdx].cycles || 1;
 
     function applyPalette(i) {
       const p = palettes[i];
       eng.setPalette(root.Neonic.buildRamp(p.stops));
-      eng.setSpeed(p.speed);  // sign preserved: negative = cycle backward
+      eng.setSpeed(p.speed);
     }
     applyPalette(curIdx);
 
@@ -208,7 +205,7 @@
     if (palettes.length > 1) {
       eng.onFrame = function () {
         if (eng.nextPalette !== null) {
-          // Tween speed across the 254-tick feed-in. Sign-preserving.
+          // Tween speed across the 254-tick feed-in.
           const tFrac = Math.max(0, Math.min(1,
             (eng.offset - eng.nextStartOff) / 254));
           const s1 = palettes[curIdx].speed;
@@ -217,14 +214,9 @@
         } else if (pendingNext >= 0) {
           curIdx = pendingNext; pendingNext = -1;
           applyPalette(curIdx);
-          target = mode === 'surprise'
-            ? 1 + Math.floor(Math.random() * 4)
-            : (palettes[curIdx].cycles || 1);
+          target = palettes[curIdx].cycles || 1;
         } else if ((eng.offset - eng.baseStartOff) / 255 >= target) {
-          let next;
-          if (mode === 'sequential') next = (curIdx + 1) % palettes.length;
-          else { do { next = Math.floor(Math.random() * palettes.length); }
-                 while (next === curIdx); }
+          const next = (curIdx + 1) % palettes.length;
           pendingNext = next;
           eng.transitionTo(
             root.Neonic.buildRamp(palettes[next].stops),
