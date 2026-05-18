@@ -62,11 +62,9 @@ test('Remove palette deletes a non-active row', async ({ page }) => {
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   await expect(page.locator('.pal-row')).toHaveCount(2);
 
-  // Auto-accept the confirm() dialog the button raises.
-  page.on('dialog', (d) => d.accept());
-
   // The second row is active after Add; its drawer is open, exposing
-  // the remove-palette button at the bottom of the drawer.
+  // the remove-palette button at the bottom of the drawer. Removal is
+  // immediate now (no confirm popup — it's in the undo stack).
   await page.locator('.pal-row.open').getByRole('button', { name: /remove palette/i }).click();
   await expect(page.locator('.pal-row')).toHaveCount(1);
 });

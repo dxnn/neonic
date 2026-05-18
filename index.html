@@ -713,7 +713,6 @@ let activeIdx = -1;         // editor's selected entry; -1 = scratch (no playlis
 let displayedIdx = -1;      // engine's currently-playing entry
 let pendingNextIdx = -1;    // queued next-displayed during a transition
 let targetCycles = 1;
-let cycleRaf = 0;
 
 // ─── DOM refs ────────────────────────────────────────────────────────────
 const drawCvs    = $('draw');
@@ -1551,6 +1550,7 @@ function rebake() {
   if (engine) engine.stop();
 
   engine = new window.Neonic.CycleEngine(outCvs, baked);
+  attachCycleWatcher(engine);
   // First-bake palette: prefer the displayed playlist entry; fall back
   // to whatever the editor's currentRamp is (which the playlist init
   // also primes from playlist[0]).
@@ -1878,42 +1878,42 @@ function pickNextIdx() {
   return (displayedIdx + 1) % playlist.length;
 }
 
-function startCycleWatcher() {
-  if (cycleRaf) cancelAnimationFrame(cycleRaf);
-  function tick() {
-    if (engine && engine.running && playlist.length >= 2 && displayedIdx >= 0) {
-      if (engine.nextPalette !== null) {
-        const tFrac = Math.max(0, Math.min(1,
-          Math.abs(engine.offset - engine.nextStartOff) / 254));
-        const s1 = playlist[displayedIdx]?.speed ?? 0;
-        const s2 = playlist[pendingNextIdx]?.speed ?? s1;
-        engine.setSpeed(s1 + (s2 - s1) * tFrac);
-      } else if (pendingNextIdx >= 0) {
-        displayedIdx = pendingNextIdx;
-        pendingNextIdx = -1;
-        const entry = playlist[displayedIdx];
-        targetCycles = entry.cycles || 1;
-        engine.setSpeed(entry.speed);
-        updatePlayingMarker();
-      } else {
-        // Count cycles regardless of direction so negative speeds also
-        // trigger transitions; schedule nextStart in the direction of
-        // motion so the engine actually reaches it.
-        const cyclesPlayed = Math.abs(engine.offset - engine.baseStartOff) / 255;
-        if (cyclesPlayed >= targetCycles) {
-          const nextIdx = pickNextIdx();
-          const dir = engine.speed >= 0 ? 1 : -1;
-          const nextStart = engine.baseStartOff + dir * targetCycles * 255;
-          engine.transitionTo(
-            window.Neonic.buildRamp(playlist[nextIdx].stops),
-            nextStart);
-          pendingNextIdx = nextIdx;
-        }
+// Cycle watcher runs inside the engine's own _frame via onFrame, so
+// there's only one rAF loop and eng.stop()/dispose() halt the watcher
+// for free. Attach once per new engine — rebake() makes a fresh one
+// each time.
+function attachCycleWatcher(eng) {
+  eng.onFrame = function (e) {
+    if (playlist.length < 2 || displayedIdx < 0) return;
+    if (e.nextPalette !== null) {
+      // Tween speed across the 254-tick feed-in. abs() keeps the math
+      // consistent if/when negative speeds come back; for the current
+      // [0, 200] UI range it's a no-op.
+      const tFrac = Math.max(0, Math.min(1,
+        Math.abs(e.offset - e.nextStartOff) / 254));
+      const s1 = playlist[displayedIdx]?.speed ?? 0;
+      const s2 = playlist[pendingNextIdx]?.speed ?? s1;
+      e.setSpeed(s1 + (s2 - s1) * tFrac);
+    } else if (pendingNextIdx >= 0) {
+      displayedIdx = pendingNextIdx;
+      pendingNextIdx = -1;
+      const entry = playlist[displayedIdx];
+      targetCycles = entry.cycles || 1;
+      e.setSpeed(entry.speed);
+      updatePlayingMarker();
+    } else {
+      const cyclesPlayed = Math.abs(e.offset - e.baseStartOff) / 255;
+      if (cyclesPlayed >= targetCycles) {
+        const nextIdx = pickNextIdx();
+        const dir = e.speed >= 0 ? 1 : -1;
+        const nextStart = e.baseStartOff + dir * targetCycles * 255;
+        e.transitionTo(
+          window.Neonic.buildRamp(playlist[nextIdx].stops),
+          nextStart);
+        pendingNextIdx = nextIdx;
       }
     }
-    cycleRaf = requestAnimationFrame(tick);
-  }
-  cycleRaf = requestAnimationFrame(tick);
+  };
 }
 
 function buildPresetOptions(sel, currentName) {
@@ -2207,7 +2207,7 @@ function renderPlaylist() {
     removePalBtn.disabled = playlist.length === 1;
     removePalBtn.addEventListener('click', () => {
       if (playlist.length <= 1) return;
-      if (!confirm('Remove this palette?')) return;
+      // No confirm popup — removal is in the undo stack now.
       removePlaylistItem(i);
     });
 
@@ -2737,7 +2737,6 @@ selectedStop = 0;
 currentRamp = window.Neonic.buildRamp(playlist[0].stops);
 refreshHistoryButtons();
 renderPlaylist();
-startCycleWatcher();
 scheduleRender();
 
 // ─── Chrome wiring ───────────────────────────────────────────────────────
