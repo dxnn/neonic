@@ -151,6 +151,13 @@
       collapseCanvasIntrinsic(canvas);
       const { baked, cssLong: newCssLong } = bakeForCanvas(canvas, ctx.metadata);
       ctx.lastCssLong = newCssLong;
+      // Explicitly release the previous mask canvas's backing buffer
+      // before swapping the reference. Browsers will GC the orphan
+      // eventually, but a long-lived page that resizes a lot (window
+      // drags, external-monitor moves) builds up MBs of canvas data
+      // between collections.
+      const oldMask = ctx.eng.maskCanvas;
+      if (oldMask) { oldMask.width = 0; oldMask.height = 0; }
       ctx.eng.baked = baked;
       ctx.eng.maskCanvas = baked.maskCanvas || null;
       canvas.width = baked.width; canvas.height = baked.height;
@@ -237,6 +244,12 @@
       eng.stop();
       if (ctx.observer) { ctx.observer.disconnect(); ctx.observer = null; }
       eng.onFrame = null;
+      // Release the mask canvas's backing buffer eagerly — same
+      // reasoning as the rebake path.
+      if (eng.maskCanvas) {
+        eng.maskCanvas.width = 0;
+        eng.maskCanvas.height = 0;
+      }
       eng.maskCanvas = null;
     };
 

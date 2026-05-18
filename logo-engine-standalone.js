@@ -411,7 +411,14 @@
       const p   = useB ? b    : a;
       if (--posA < 0) posA += 255;
       if (--posB < 0) posB += 255;
-      const k0 = pos | 0, k1 = (k0 + 1) % 255, f = pos - k0;
+      // Clamp k1 at the endpoint instead of wrapping (255 → 0). The
+      // ramp is a function on [0, 1]; positions land in [0, 254]
+      // after the integer truncation, and the upper fence at 254
+      // should blend toward itself, not all the way back to ramp[0].
+      // For closed palettes (rainbow, t=0 == t=1) the two behave
+      // identically; for open palettes (greyscale, plasma) wrapping
+      // produced a 1-frame seam every cycle.
+      const k0 = pos | 0, k1 = k0 < 254 ? k0 + 1 : 254, f = pos - k0;
       const o0 = k0 * 3, o1 = k1 * 3;
       const r  = p[o0]     + (p[o1]     - p[o0])     * f;
       const g  = p[o0 + 1] + (p[o1 + 1] - p[o0 + 1]) * f;
