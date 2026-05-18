@@ -1527,7 +1527,12 @@ function rebake() {
 
   const prev = engine
     ? { offset: engine.offset, baseStartOff: engine.baseStartOff,
-        speed: engine.speed, running: engine.running }
+        speed: engine.speed, running: engine.running,
+        // Capture an in-flight transition (cross-fade between two
+        // playlist entries) so it can resume on the new engine
+        // instead of snapping mid-blend.
+        nextPalette: engine.nextPalette,
+        nextStartOff: engine.nextStartOff }
     : null;
   if (engine) engine.stop();
 
@@ -1548,6 +1553,15 @@ function rebake() {
     engine.offset = prev.offset;
     engine.baseStartOff = prev.baseStartOff;
     engine.setSpeed(prev.speed);
+    // Re-queue the in-flight palette transition if there was one.
+    // setPalette above cleared nextPalette/nextStartOff, so we
+    // overwrite them after. _palDirty triggers a fresh palette table
+    // write on the next frame.
+    if (prev.nextPalette !== null) {
+      engine.nextPalette = prev.nextPalette;
+      engine.nextStartOff = prev.nextStartOff;
+      engine._palDirty = true;
+    }
     if (prev.running) engine.start();
   } else {
     const seedEntry = (displayedIdx >= 0) ? playlist[displayedIdx] : null;
