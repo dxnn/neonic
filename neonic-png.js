@@ -173,6 +173,24 @@
     }
     if (!meta) throw new Error('No neonic metadata in PNG');
     if (meta.indices != null) delete meta.indices;
+    // Validate anchor shape before handing back. The loader and editor
+    // both check anchors.length, but a corrupt PNG could pass that and
+    // still ship anchors with missing/non-numeric fields that bake to
+    // NaN coordinates and an empty mask. Fail loudly here instead.
+    if (Array.isArray(meta.anchors)) {
+      const REQ = ['x', 'y', 'h1x', 'h1y', 'h2x', 'h2y'];
+      for (let i = 0; i < meta.anchors.length; i++) {
+        const a = meta.anchors[i];
+        if (!a || typeof a !== 'object') {
+          throw new Error('Anchor ' + i + ' is not an object');
+        }
+        for (const k of REQ) {
+          if (typeof a[k] !== 'number' || !isFinite(a[k])) {
+            throw new Error('Anchor ' + i + ' missing or non-finite ' + k);
+          }
+        }
+      }
+    }
     return { width: meta.width, height: meta.height, metadata: meta };
   }
 

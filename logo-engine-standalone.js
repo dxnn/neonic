@@ -17,6 +17,9 @@
   // stops: [{ t: 0..1, color: [r, g, b] }, ...]
   // Entry i occupies bytes i*3, i*3+1, i*3+2.
   function buildRamp(stops) {
+    if (!Array.isArray(stops) || stops.length === 0) {
+      throw new Error('buildRamp: stops must be a non-empty array');
+    }
     stops = stops.slice().sort((a, b) => a.t - b.t);
     const out = new Uint8Array(255 * 3);
     for (let i = 0; i < 255; i++) {
