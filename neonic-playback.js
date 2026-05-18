@@ -908,9 +908,17 @@
     return eng;
   }
 
+  // Promise.allSettled, not all — one broken PNG or detached canvas
+  // shouldn't take down every other logo on the page. Failed mounts
+  // are logged so a developer sees them, then dropped.
   function mountAll(selector) {
     const canvases = document.querySelectorAll(selector || '.logo-cycle');
-    return Promise.all(Array.from(canvases).map((c) => mount(c)));
+    return Promise.allSettled(Array.from(canvases).map((c) =>
+      mount(c).catch((err) => {
+        console.warn('Neonic: mount failed for', c, err);
+        throw err;
+      })
+    ));
   }
 
   root.NeonicLoader = { mount, mountAll };

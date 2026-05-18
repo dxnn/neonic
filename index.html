@@ -1795,6 +1795,7 @@ function removePlaylistItem(idx) {
   if (playlist.length <= 1) return;
   const wasActive = idx === activeIdx;
   const wasDisplayed = idx === displayedIdx;
+  const wasPending = idx === pendingNextIdx;
   playlist.splice(idx, 1);
   if (wasActive) activeIdx = -1;
   else if (idx < activeIdx) activeIdx--;
@@ -1810,6 +1811,12 @@ function removePlaylistItem(idx) {
   } else if (idx < displayedIdx) {
     displayedIdx--;
   }
+  // pendingNextIdx tracks a queued transition that hasn't promoted yet.
+  // If the queued row is the one being deleted, drop the queue; if an
+  // earlier row is deleted, shift the index down to keep pointing at
+  // the same entry.
+  if (wasPending) pendingNextIdx = -1;
+  else if (pendingNextIdx >= 0 && idx < pendingNextIdx) pendingNextIdx--;
   renderPlaylist();
 }
 
@@ -1818,14 +1825,20 @@ function reorderPlaylist(from, to) {
   if (from >= playlist.length || to >= playlist.length) return;
   const moved = playlist.splice(from, 1)[0];
   playlist.splice(to, 0, moved);
-  // Apply the same shift to activeIdx and displayedIdx.
-  for (const ref of ['activeIdx', 'displayedIdx']) {
-    const cur = ref === 'activeIdx' ? activeIdx : displayedIdx;
+  // Apply the same shift to activeIdx, displayedIdx, and pendingNextIdx
+  // — the queued-next row needs to follow the entry it points at when
+  // the playlist is reordered mid-transition.
+  for (const ref of ['activeIdx', 'displayedIdx', 'pendingNextIdx']) {
+    const cur = ref === 'activeIdx' ? activeIdx
+              : ref === 'displayedIdx' ? displayedIdx
+              : pendingNextIdx;
     let next = cur;
     if (cur === from) next = to;
     else if (from < cur && cur <= to) next = cur - 1;
     else if (to <= cur && cur < from) next = cur + 1;
-    if (ref === 'activeIdx') activeIdx = next; else displayedIdx = next;
+    if (ref === 'activeIdx') activeIdx = next;
+    else if (ref === 'displayedIdx') displayedIdx = next;
+    else pendingNextIdx = next;
   }
   renderPlaylist();
 }
@@ -2241,11 +2254,31 @@ function redo() {
 }
 $('undo').addEventListener('click', undo);
 $('redo').addEventListener('click', redo);
+// Cmd/Ctrl-Z undo; with shift = redo. Bail when focus is in a text
+// field so the browser's own per-input undo still works — otherwise
+// typing in a palette name input and hitting Cmd-Z would roll back
+// the canvas instead of the typing.
 window.addEventListener('keydown', (e) => {
   if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'z') return;
+  if (isTextFieldFocused()) return;
   e.preventDefault();
   if (e.shiftKey) redo(); else undo();
 });
+
+function isTextFieldFocused() {
+  const el = document.activeElement;
+  if (!el || el === document.body) return false;
+  if (el.isContentEditable) return true;
+  const tag = el.tagName;
+  if (tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if (tag !== 'INPUT') return false;
+  // Sliders, colour-pickers, and the like don't capture keyboard
+  // characters; only the typing-style input types should suppress.
+  const t = (el.type || 'text').toLowerCase();
+  return t === 'text' || t === 'number' || t === 'search' ||
+         t === 'email' || t === 'url'   || t === 'tel'    ||
+         t === 'password';
+}
 
 $('smooth').addEventListener('click', () => {
   if (!state.paths.length || state.paths[0].anchors.length < 2) return;
@@ -2604,10 +2637,11 @@ strokeWIn.addEventListener('input', () => {
 
 $('addInline').addEventListener('click', addToPlaylist);
 
-// Esc closes the open drawer (only when no other input is focused, so
-// it doesn't fight typing-style cancellation in the future).
+// Esc closes the open drawer — but only when no text input is focused,
+// so it doesn't fight per-input typing cancellation.
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
+  if (isTextFieldFocused()) return;
   if (activeIdx >= 0) {
     e.preventDefault();
     closeDrawer();
