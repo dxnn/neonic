@@ -110,4 +110,4 @@ and the iTXt metadata format.
 
 Apache 2.0 — see [`LICENSE`](LICENSE). The vendored `perfect-freehand`
 is MIT; attribution is in [`NOTICE`](NOTICE) and
-[`THIRD_PARTY_LICENSES/perfect-freehand-MIT.txt`](THIRD_PARTY_LICENSES/perfect-freehand-MIT.txt).
+[`licenses/perfect-freehand-MIT.txt`](licenses/perfect-freehand-MIT.txt).
