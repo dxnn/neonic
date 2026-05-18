@@ -1245,27 +1245,33 @@ $('zoomFit').addEventListener('click', () => {
   scheduleRender();
 });
 
+// The "null action" in panel 2 is pan. Click-and-drag in empty space
+// pans the view regardless of the chosen tap-mode; the explicit pan
+// mode just forces panning even when the cursor IS over an anchor or
+// curve (useful when the canvas is densely packed and there's no
+// blank spot to grab).
+function startBezierPan(e) {
+  ensureManualView();
+  activeDrag = {
+    kind: 'pan',
+    startCssX: e.clientX,
+    startCssY: e.clientY,
+    startTx: bezierManualView.tx,
+    startTy: bezierManualView.ty,
+  };
+  bezCvs.classList.add('panning');
+}
+
 bezCvs.addEventListener('pointerdown', (e) => {
   e.preventDefault();
 
-  // Pan: middle-click anywhere, or any-button when bezierMode is 'pan'.
-  // We seed manual-view from the current auto-fit so the very first
-  // pan starts from where the user already sees things.
+  // Middle-click is always pan; explicit pan mode is always pan.
   if (e.button === 1 || bezierMode === 'pan') {
-    ensureManualView();
-    activeDrag = {
-      kind: 'pan',
-      startCssX: e.clientX,
-      startCssY: e.clientY,
-      startTx: bezierManualView.tx,
-      startTy: bezierManualView.ty,
-    };
-    bezCvs.classList.add('panning');
+    startBezierPan(e);
     return;
   }
 
   const { x, y } = pointerToLogical(e.clientX, e.clientY);
-
   const wantRemove = e.ctrlKey || e.metaKey || bezierMode === 'remove';
   const wantAdd = e.shiftKey || bezierMode === 'add';
 
@@ -1277,7 +1283,10 @@ bezCvs.addEventListener('pointerdown', (e) => {
       state.paths[hit.pi].anchors.splice(hit.ai, 1);
       scheduleRender();
       scheduleBake();
+      return;
     }
+    // Empty space in remove mode → pan rather than do nothing.
+    startBezierPan(e);
     return;
   }
 
@@ -1290,16 +1299,22 @@ bezCvs.addEventListener('pointerdown', (e) => {
       splitBezierAt(state.paths[0], closest.segIdx, closest.t);
       scheduleRender();
       scheduleBake();
+      return;
     }
+    // No curve nearby → pan.
+    startBezierPan(e);
     return;
   }
 
-  // Drag mode: move the hit anchor or handle.
+  // Drag mode (default): grab the anchor/handle under the cursor, or
+  // fall through to pan when nothing's there.
   const hit = bezierHitTest(x, y);
   if (hit) {
     pushHistory();
     activeDrag = { kind: 'bezier', ...hit };
+    return;
   }
+  startBezierPan(e);
 });
 
 function closestPointOnPath(path, x, y, maxDist) {
