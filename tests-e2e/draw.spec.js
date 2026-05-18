@@ -45,8 +45,11 @@ test('stroke → bake → cycling preview', async ({ page }) => {
   const first = await sampleStrokePixel();
   expect(first).not.toBeNull();
 
+  // page.evaluate rather than locator.evaluate — the latter passes the
+  // element as the first callback arg, and we don't need a binding here
+  // since we look the canvas up by id from inside.
   await expect.poll(async () => {
-    const px = await out.evaluate(({ x, y }) => {
+    const px = await page.evaluate(({ x, y }) => {
       const ctx = document.getElementById('out').getContext('2d');
       const d = ctx.getImageData(x, y, 1, 1).data;
       return { r: d[0], g: d[1], b: d[2] };
