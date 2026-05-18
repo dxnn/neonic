@@ -1,6 +1,13 @@
 # deploy
 rsyncer
 
+# Node tooling (Playwright). package.json is tracked; node_modules
+# is per-clone, the report and traces are per-run.
+node_modules/
+test-results/
+playwright-report/
+playwright/.cache/
+
 # Local Claude Code config — per-clone, not shared.
 .claude/
 

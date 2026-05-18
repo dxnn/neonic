@@ -26,6 +26,14 @@ Workflow:
   `node --test 'tests/*.test.js'`. Runs without a browser via Node's
   built-in test runner (node:test). 22 tests. (Node 25 dropped the
   implicit directory-discovery form, so pass the glob explicitly.)
+- E2E tests (canvas/DOM/Playwright): `npm run test:e2e`. Specs live
+  in `tests-e2e/*.spec.js`. The config hits the always-on static
+  server at localhost:8080, chromium only. One-time setup if
+  node_modules is fresh: `npm install && npx playwright install
+  chromium`. Prefer `getByRole` / `getByLabel`; use ID selectors
+  for canvases and unlabelled sliders, `data-testid` for elements
+  with no semantic role (the playlist hamburger grip is the only
+  one so far).
 - Browser smoke-test the actual UI changes — canvas/DOM code can't be covered
   by the Node tests.
 

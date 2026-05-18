@@ -1,0 +1,11 @@
+{
+  "name": "neonic",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  }
+}
