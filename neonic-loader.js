@@ -189,40 +189,29 @@
 
     const eng = new root.Neonic.CycleEngine(canvas, baked);
     const palettes = metadata.palettes;
+
+    // Initial palette + speed; the playlist watcher (below) takes over
+    // for subsequent transitions.
+    const first = palettes[0];
+    eng.setPalette(root.Neonic.buildRamp(first.stops));
+    eng.setSpeed(first.speed);
+
+    // Shared playlist orchestrator from the engine module. State here
+    // is local — the loader's palettes array is frozen for the engine's
+    // lifetime, and curIdx/pendingNext/target live in this closure.
     let curIdx = 0;
     let pendingNext = -1;
-    let target = palettes[curIdx].cycles || 1;
-
-    function applyPalette(i) {
-      const p = palettes[i];
-      eng.setPalette(root.Neonic.buildRamp(p.stops));
-      eng.setSpeed(p.speed);
-    }
-    applyPalette(curIdx);
-
-    // Playlist watcher runs inside the engine's _frame, so there's only
-    // one rAF loop and eng.stop() halts everything.
+    let target = first.cycles || 1;
     if (palettes.length > 1) {
-      eng.onFrame = function () {
-        if (eng.nextPalette !== null) {
-          // Tween speed across the 254-tick feed-in.
-          const tFrac = Math.max(0, Math.min(1,
-            (eng.offset - eng.nextStartOff) / 254));
-          const s1 = palettes[curIdx].speed;
-          const s2 = palettes[pendingNext].speed;
-          eng.setSpeed(s1 + (s2 - s1) * tFrac);
-        } else if (pendingNext >= 0) {
-          curIdx = pendingNext; pendingNext = -1;
-          applyPalette(curIdx);
-          target = palettes[curIdx].cycles || 1;
-        } else if ((eng.offset - eng.baseStartOff) / 255 >= target) {
-          const next = (curIdx + 1) % palettes.length;
-          pendingNext = next;
-          eng.transitionTo(
-            root.Neonic.buildRamp(palettes[next].stops),
-            eng.baseStartOff + target * 255);
-        }
-      };
+      root.Neonic.attachPlaylistWatcher(eng, {
+        getPalettes: () => palettes,
+        getActive:   () => curIdx,
+        setActive:   (i) => { curIdx = i; },
+        getPending:  () => pendingNext,
+        setPending:  (i) => { pendingNext = i; },
+        getTarget:   () => target,
+        setTarget:   (n) => { target = n; },
+      });
     }
 
     const ctx = { eng, metadata, lastCssLong, disposed: false, observer: null };

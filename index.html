@@ -1874,46 +1874,22 @@ function reorderPlaylist(from, to) {
   renderPlaylist();
 }
 
-function pickNextIdx() {
-  return (displayedIdx + 1) % playlist.length;
-}
-
-// Cycle watcher runs inside the engine's own _frame via onFrame, so
-// there's only one rAF loop and eng.stop()/dispose() halt the watcher
-// for free. Attach once per new engine — rebake() makes a fresh one
-// each time.
+// The editor uses the same playlist orchestrator as the embed-time
+// loader (Neonic.attachPlaylistWatcher in the engine module). State
+// lives in the editor's module globals; callbacks just bridge them.
+// The watcher itself runs inside the engine's own _frame, so there's
+// only one rAF loop and engine.stop() halts everything.
 function attachCycleWatcher(eng) {
-  eng.onFrame = function (e) {
-    if (playlist.length < 2 || displayedIdx < 0) return;
-    if (e.nextPalette !== null) {
-      // Tween speed across the 254-tick feed-in. abs() keeps the math
-      // consistent if/when negative speeds come back; for the current
-      // [0, 200] UI range it's a no-op.
-      const tFrac = Math.max(0, Math.min(1,
-        Math.abs(e.offset - e.nextStartOff) / 254));
-      const s1 = playlist[displayedIdx]?.speed ?? 0;
-      const s2 = playlist[pendingNextIdx]?.speed ?? s1;
-      e.setSpeed(s1 + (s2 - s1) * tFrac);
-    } else if (pendingNextIdx >= 0) {
-      displayedIdx = pendingNextIdx;
-      pendingNextIdx = -1;
-      const entry = playlist[displayedIdx];
-      targetCycles = entry.cycles || 1;
-      e.setSpeed(entry.speed);
-      updatePlayingMarker();
-    } else {
-      const cyclesPlayed = Math.abs(e.offset - e.baseStartOff) / 255;
-      if (cyclesPlayed >= targetCycles) {
-        const nextIdx = pickNextIdx();
-        const dir = e.speed >= 0 ? 1 : -1;
-        const nextStart = e.baseStartOff + dir * targetCycles * 255;
-        e.transitionTo(
-          window.Neonic.buildRamp(playlist[nextIdx].stops),
-          nextStart);
-        pendingNextIdx = nextIdx;
-      }
-    }
-  };
+  window.Neonic.attachPlaylistWatcher(eng, {
+    getPalettes: () => playlist,
+    getActive:   () => displayedIdx,
+    setActive:   (i) => { displayedIdx = i; },
+    getPending:  () => pendingNextIdx,
+    setPending:  (i) => { pendingNextIdx = i; },
+    getTarget:   () => targetCycles,
+    setTarget:   (n) => { targetCycles = n; },
+    onPromote:   updatePlayingMarker,
+  });
 }
 
 function buildPresetOptions(sel, currentName) {

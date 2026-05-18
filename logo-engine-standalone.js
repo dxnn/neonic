@@ -475,5 +475,74 @@
     this._paint();
   };
 
-  root.Neonic = { bakeFromD, bakeFromStroke, bakeFromAnchors, sampleAnchors, CycleEngine, buildRamp, _test: { rgba, hex } };
+  // ─── playlist orchestrator ───────────────────────────────────────────────
+  // Attach a playlist-transition watcher to an engine via its onFrame
+  // hook. Given an array of palettes ({ stops, speed, cycles }), this
+  // walks them sequentially: each palette plays for `cycles` cycles,
+  // then cross-fades to the next over 254 ticks.
+  //
+  // Both the editor and the embed-time loader were carrying their own
+  // copy of this loop — same shape, ~30 lines each, differing only in
+  // how they store the active/pending indices. They now both call this.
+  //
+  // opts callbacks let the caller decide where state lives:
+  //   getPalettes()         returns the (possibly mutating) palette array
+  //   getActive()           returns the currently-displayed index
+  //   setActive(i)          called on promote (engine has already swapped
+  //                         in nextPalette; this is the bookkeeping update)
+  //   getPending()          returns the queued-next index, -1 if none
+  //   setPending(i)         updates the queue
+  //   getTarget()           returns target cycle count for the active palette
+  //   setTarget(n)          updates the target after promote
+  //   onPromote()           optional; called when promote bookkeeping fires
+  //                         (used by the editor to update its playing
+  //                         marker; the embed loader has no UI for it)
+  function attachPlaylistWatcher(eng, opts) {
+    eng.onFrame = function (e) {
+      const palettes = opts.getPalettes();
+      if (palettes.length < 2) return;
+      const active = opts.getActive();
+      if (active < 0) return;
+      const pending = opts.getPending();
+      if (e.nextPalette !== null) {
+        // Cross-fade in progress: tween speed between the two palettes
+        // across the 254-tick feed-in. abs() leaves room for negative
+        // speeds; for the current [0, 200] UI it's a no-op.
+        const tFrac = Math.max(0, Math.min(1,
+          Math.abs(e.offset - e.nextStartOff) / 254));
+        const s1 = palettes[active]?.speed ?? 0;
+        const s2 = palettes[pending]?.speed ?? s1;
+        e.setSpeed(s1 + (s2 - s1) * tFrac);
+      } else if (pending >= 0) {
+        // Engine just promoted nextPalette → basePalette. Update our
+        // bookkeeping to match, set the new palette's speed, and (if
+        // the host wants it) fire onPromote so a UI marker can move.
+        // We do NOT call setPalette here — the engine already swapped
+        // ramps internally and resetting via setPalette would shift
+        // baseStartOff by ~254 ticks for no benefit.
+        opts.setActive(pending);
+        opts.setPending(-1);
+        opts.setTarget(palettes[pending].cycles || 1);
+        e.setSpeed(palettes[pending].speed);
+        if (opts.onPromote) opts.onPromote();
+      } else {
+        // No transition in flight. Once we've cycled `target` times
+        // from the active palette's start, queue the next one. dir is
+        // a no-op for non-negative speeds, kept to make the scheduled
+        // nextStart land on the side the engine is heading toward.
+        const target = opts.getTarget();
+        const cyclesPlayed = Math.abs(e.offset - e.baseStartOff) / 255;
+        if (cyclesPlayed >= target) {
+          const next = (active + 1) % palettes.length;
+          const dir = e.speed >= 0 ? 1 : -1;
+          e.transitionTo(
+            buildRamp(palettes[next].stops),
+            e.baseStartOff + dir * target * 255);
+          opts.setPending(next);
+        }
+      }
+    };
+  }
+
+  root.Neonic = { bakeFromD, bakeFromStroke, bakeFromAnchors, sampleAnchors, CycleEngine, attachPlaylistWatcher, buildRamp, _test: { rgba, hex } };
 })(window);
