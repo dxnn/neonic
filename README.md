@@ -19,7 +19,7 @@ player and it animates.
 <script>NeonicLoader.mountAll('.logo-cycle');</script>
 ```
 
-`neonic-playback.js` is a single ~35 KB file with no dependencies. Size
+`neonic-playback.js` is a single ~44 KB file with no dependencies. Size
 the canvas with CSS — width, height, or both. The runtime re-bakes the
 animation at the canvas's actual display resolution, so a tiny embed
 pays tiny per-frame compute. If the PNG has more than one palette
@@ -71,31 +71,47 @@ bake and the full palette playlist.
 |---|---|
 | `index.html` | The drawing tool |
 | `neonic-playback.js` | Bundled playback runtime — what consumers ship |
-| `logo-engine-standalone.js` | Engine: `CycleEngine`, `buildRamp`, `bakeFromAnchors`, `bakeFromStroke`, `bakeFromD` |
+| `logo-engine-standalone.js` | Engine: `CycleEngine`, `buildRamp`, `bakeFromAnchors`, `bakeFromStroke`, `bakeFromD`, `sampleAnchors`, `attachPlaylistWatcher` |
 | `neonic-png.js` | `.neonic.png` codec (iTXt chunk read/write) |
-| `neonic-loader.js` | Mount + display-size adaptive bake + palette playlist crossfader |
+| `neonic-loader.js` | Mount + display-size adaptive bake; delegates playlist transitions to `attachPlaylistWatcher` |
 | `build-playback.js` | Concatenates the three runtime files into the bundle |
 | `perfect-freehand.mjs` | Vendored stroke renderer (Steve Ruiz, MIT) |
-| `logo.neonic.png` | Sample logo |
-| `tests/engine.test.js` | Node test suite — 22 tests, no browser needed |
+| `logo.neonic.png`, `neonic.neonic.png` | Sample logo + brand glyph the editor mounts in its header |
+| `tests/*.test.js` | Node unit tests — pure helpers, engine math, bundle-equivalence |
+| `tests-e2e/*.spec.js` | Playwright e2e tests against the editor running on localhost |
+| `package.json`, `playwright.config.js` | Dev-tooling config (Playwright is the only dev dep) |
 | `extra/` | Junk drawer — embed demos, A/B compare page, spare samples; gitignored |
 
 ## Development
 
-```
+```sh
 python3 -m http.server 8000           # serve the static app
-node --test 'tests/*.test.js'         # run unit tests
+node --test 'tests/*.test.js'         # run unit tests (~22)
 node build-playback.js                # rebuild neonic-playback.js
+
+# One-time setup for the browser-driven e2e suite:
+npm install
+npx playwright install chromium
+
+npm run test:e2e                      # run e2e tests (~26)
 ```
 
 Edit the three runtime source files
 (`logo-engine-standalone.js`, `neonic-png.js`, `neonic-loader.js`)
 and re-run `node build-playback.js` to refresh the bundle. The bundle
-is committed so consumers can grab a working copy without running node.
+is committed so consumers can grab a working copy without running
+node. A unit test (`tests/bundle.test.js`) fails loudly if the
+committed bundle drifts from a fresh concat of the sources.
 
-Tests cover pure helpers and the `CycleEngine` palette math. Anything
-involving the canvas (the bake pipeline, the editor itself) needs a
-browser smoke-test.
+Tests cover three layers:
+
+- **Pure helpers** (`buildRamp`, `rgba`, `hex`) and `CycleEngine`
+  palette math — `node --test 'tests/*.test.js'`, no browser.
+- **Bundle freshness** — same Node runner, byte-equality check.
+- **Editor end-to-end** — chromium-only Playwright suite that drives
+  the four panels through their real DOM. Specs live in
+  `tests-e2e/*.spec.js` and target the always-on static server at
+  `localhost:8080`.
 
 ## How it works
 
