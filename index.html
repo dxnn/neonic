@@ -576,9 +576,9 @@
         </select>
         <div style="flex:1"></div>
         <div class="chip mono zoom">
-          <button id="zoomOut" title="Zoom out">−</button>
-          <input id="zoom-val" type="text" value="100%" />
-          <button id="zoomIn" title="Zoom in">+</button>
+          <button id="zoomOut" title="Zoom out" aria-label="Zoom out">−</button>
+          <input id="zoom-val" type="text" value="100%" aria-label="Zoom level" />
+          <button id="zoomIn" title="Zoom in" aria-label="Zoom in">+</button>
         </div>
         <button class="chip" id="zoomFit" title="Reset to auto-fit">fit</button>
         <span id="bez-meta" hidden></span>
@@ -1014,6 +1014,10 @@ function drawBezierPanel() {
     bctx.font = '14px ui-sans-serif, system-ui, sans-serif';
     bctx.fillText('draw a stroke first', 16, 26);
     bctx.globalAlpha = 1;
+    // Reflect the empty state in bez-meta — otherwise the stale count
+    // from the last render lingers and surprises anything that reads it
+    // (e.g. an undo test that expects 0 anchors).
+    bezMeta.textContent = '0 anchors';
     return;
   }
 
