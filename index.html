@@ -506,7 +506,7 @@
       <div class="panel-hd">
         <div class="panel-hd-l">
           <div class="step s1">1</div>
-          <h2 class="h2">Sketch a path</h2>
+          <h2 class="h2">Sketch it</h2>
         </div>
         <div class="panel-hd-r">
           <button class="btn primary" id="import">
@@ -539,7 +539,7 @@
       <div class="panel-hd">
         <div class="panel-hd-l">
           <div class="step s2">2</div>
-          <h2 class="h2">Tweak anchors</h2>
+          <h2 class="h2">Tweak it</h2>
         </div>
         <div class="panel-hd-r">
           <button class="btn primary" id="smooth">
@@ -590,7 +590,7 @@
       <div class="panel-hd">
         <div class="panel-hd-l">
           <div class="step s3">3</div>
-          <h2 class="h2">Paint palette</h2>
+          <h2 class="h2">Paint it</h2>
         </div>
         <div class="panel-hd-r">
           <button class="btn primary" id="addInline" title="Add a copy of the current palette">
@@ -612,7 +612,7 @@
       <div class="panel-hd">
         <div class="panel-hd-l">
           <div class="step s4">4</div>
-          <h2 class="h2">Grab the output</h2>
+          <h2 class="h2">Grab it</h2>
         </div>
         <div class="panel-hd-r">
           <button class="btn juicy" id="export">
@@ -1878,7 +1878,6 @@ function renderPlaylist() {
     row.className = 'pal-row'
       + (i === activeIdx ? ' open' : '')
       + (i === displayedIdx ? ' playing' : '');
-    row.draggable = true;
     row.dataset.idx = String(i);
 
     // ── Head ─────────────────────────────────────────
@@ -1890,9 +1889,15 @@ function renderPlaylist() {
     playMarker.textContent = '▶';
     head.appendChild(playMarker);
 
+    // Only the grip is draggable. Putting draggable on the row was
+    // tempting but breaks the "grip-only" intent — Chrome reports
+    // dragstart's e.target as the *draggable element* (the row), so a
+    // closest('.grip') check never matched and reorder silently
+    // stopped working.
     const grip = document.createElement('span');
     grip.className = 'grip';
     grip.textContent = '☰';
+    grip.draggable = true;
     head.appendChild(grip);
 
     const swatch = document.createElement('canvas');
@@ -1912,7 +1917,12 @@ function renderPlaylist() {
     speedField.className = 'row-field';
     speedField.appendChild(document.createTextNode('speed '));
     const rowSpeedIn = document.createElement('input');
-    rowSpeedIn.type = 'number'; rowSpeedIn.min = '-200'; rowSpeedIn.max = '200';
+    // TODO: re-expose negative speeds (and playlist composition modes
+    // like reverse-on-loop) once the cycle-watcher's transition logic is
+    // proven against signed speeds. The earlier "allow negatives" pass
+    // slowed motion to a stop mid-transition; safer to ship positive-
+    // only until that path is reworked.
+    rowSpeedIn.type = 'number'; rowSpeedIn.min = '0'; rowSpeedIn.max = '200';
     rowSpeedIn.value = entry.speed;
     speedField.appendChild(rowSpeedIn);
     head.appendChild(speedField);
@@ -1926,7 +1936,7 @@ function renderPlaylist() {
     cyclesIn.addEventListener('click', (e) => e.stopPropagation());
     cyclesIn.addEventListener('pointerdown', (e) => e.stopPropagation());
     rowSpeedIn.addEventListener('change', () => {
-      const v = Math.max(-200, Math.min(200, +rowSpeedIn.value || 0));
+      const v = Math.max(0, Math.min(200, +rowSpeedIn.value || 0));
       rowSpeedIn.value = v;
       entry.speed = v;
       if (i === displayedIdx && engine && engine.nextPalette === null) {
@@ -2007,8 +2017,11 @@ function renderPlaylist() {
       }
     });
 
+    const presetSpacer = document.createElement('div');
+    presetSpacer.style.flex = '1';
     presetRow.appendChild(nameIn);
     presetRow.appendChild(saveBtn);
+    presetRow.appendChild(presetSpacer);
     presetRow.appendChild(presetSel);
     presetRow.appendChild(switchBtn);
     inner.appendChild(presetRow);
@@ -2104,19 +2117,16 @@ function renderPlaylist() {
 
     row.appendChild(drawer);
 
-    // Drag-and-drop reorder.
-    row.addEventListener('dragstart', (e) => {
-      // Only the grip starts a drag; clicking elsewhere on the row
-      // (swatch, inputs, drawer) shouldn't initiate reorder.
-      if (!e.target.closest('.grip')) {
-        e.preventDefault();
-        return;
-      }
+    // Drag-and-drop reorder. The grip is the only draggable element;
+    // the drag image is the whole row so the visual matches what you'd
+    // expect.
+    grip.addEventListener('dragstart', (e) => {
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', String(i));
+      e.dataTransfer.setDragImage(row, 20, row.offsetHeight / 2);
       row.classList.add('dragging');
     });
-    row.addEventListener('dragend', () => row.classList.remove('dragging'));
+    grip.addEventListener('dragend', () => row.classList.remove('dragging'));
     row.addEventListener('dragover', (e) => {
       e.preventDefault();
       row.classList.add('drag-over');
