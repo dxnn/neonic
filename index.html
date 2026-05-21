@@ -2526,15 +2526,24 @@ function applyImport(imp) {
 }
 
 $('import').addEventListener('click', () => {
+  // Safari is flaky about dispatching `change` from a *detached* file
+  // input — sometimes the picker opens but the event never fires, or
+  // fires with an empty FileList. Attach to body for the click, remove
+  // in finally.
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/png,.png,image/svg+xml,.svg';
+  input.style.display = 'none';
+  document.body.appendChild(input);
   input.onchange = async () => {
-    const file = input.files && input.files[0];
-    if (!file) return;
-    const isSvg = /\.svg$/i.test(file.name) || file.type === 'image/svg+xml';
-    let imp;
     try {
+      const file = input.files && input.files[0];
+      if (!file) {
+        console.warn('[neonic import] change fired with empty FileList');
+        return;
+      }
+      const isSvg = /\.svg$/i.test(file.name) || file.type === 'image/svg+xml';
+      let imp;
       if (isSvg) {
         imp = importFromSvg(await file.text());
         if (!imp) {
@@ -2546,11 +2555,13 @@ $('import').addEventListener('click', () => {
         imp = importFromNeonicPng(buf);
         if (!imp) return;  // alert already shown
       }
+      applyImport(imp);
     } catch (err) {
+      console.error('[neonic import]', err);
       alert('Could not import: ' + err.message);
-      return;
+    } finally {
+      input.remove();
     }
-    applyImport(imp);
   };
   input.click();
 });
